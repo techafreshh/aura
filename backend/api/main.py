@@ -4,9 +4,11 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from livekit.api import AccessToken, VideoGrants
 from agent.parser import agent
 from utils.pdf_parser import extract_text_from_pdf
-from models.schemas import UploadResponse
+from models.schemas import UploadResponse, InterviewPlan
 
 app = FastAPI(title="AI Interviewer API")
+
+plans: dict[str, InterviewPlan] = {}
 
 @app.post("/upload", response_model=UploadResponse)
 async def upload_resume(file: UploadFile = File(...)):
@@ -30,6 +32,9 @@ async def upload_resume(file: UploadFile = File(...)):
         # Generate a unique session ID
         session_id = str(uuid.uuid4())
         
+        # Store the plan in memory
+        plans[session_id] = result.output
+        
         return UploadResponse(
             session_id=session_id,
             plan_summary=result.output
@@ -40,6 +45,13 @@ async def upload_resume(file: UploadFile = File(...)):
     except Exception as e:
         # Log the error here in a real application
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+
+@app.get("/plan/{session_id}", response_model=InterviewPlan)
+async def get_plan(session_id: str):
+    plan = plans.get(session_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Interview plan not found for the given session ID.")
+    return plan
 
 @app.get("/token")
 async def get_token(session_id: str = Query(..., description="The session ID/room name to join")):
@@ -67,3 +79,4 @@ async def get_token(session_id: str = Query(..., description="The session ID/roo
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
