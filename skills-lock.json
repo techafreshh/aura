@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "building-pydantic-ai-agents": {
+      "source": "pydantic/skills",
+      "sourceType": "github",
+      "skillPath": "skills/building-pydantic-ai-agents/SKILL.md",
+      "computedHash": "333f0bea6c59a8391837a9ba871e26249f9b8cc1a64cc776d448cfae59ae5e9b"
+    },
+    "fastapi-expert": {
+      "source": "jeffallan/claude-skills",
+      "sourceType": "github",
+      "skillPath": "skills/fastapi-expert/SKILL.md",
+      "computedHash": "143163b4ba290370782ba5ef96b02f9e02d3cd6b385c2da7f42badecc1fa3cc3"
+    },
+    "livekit-agents": {
+      "source": "livekit/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/livekit-agents/SKILL.md",
+      "computedHash": "d709ee665f549428810436f97309bfcee237f5ce7801f4c0eecaf6445085f48a"
+    }
+  }
+}
