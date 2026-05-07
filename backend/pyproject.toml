@@ -6,6 +6,10 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.136.1",
+    "livekit-agents>=1.5.8",
+    "livekit-api>=1.1.0",
+    "livekit-plugins-openai>=1.5.8",
+    "livekit-plugins-silero>=1.5.8",
     "pydantic-ai>=1.90.0",
     "pypdf>=6.10.2",
     "python-dotenv>=1.2.2",

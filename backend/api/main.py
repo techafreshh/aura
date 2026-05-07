@@ -1,5 +1,7 @@
 import uuid
-from fastapi import FastAPI, UploadFile, File, HTTPException
+import os
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query
+from livekit.api import AccessToken, VideoGrants
 from agent.parser import agent
 from utils.pdf_parser import extract_text_from_pdf
 from models.schemas import UploadResponse
@@ -38,6 +40,29 @@ async def upload_resume(file: UploadFile = File(...)):
     except Exception as e:
         # Log the error here in a real application
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+
+@app.get("/token")
+async def get_token(session_id: str = Query(..., description="The session ID/room name to join")):
+    api_key = os.getenv("LIVEKIT_API_KEY")
+    api_secret = os.getenv("LIVEKIT_API_SECRET")
+
+    if not api_key or not api_secret:
+        raise HTTPException(
+            status_code=500, 
+            detail="LiveKit credentials are not configured on the server."
+        )
+
+    try:
+        token = (
+            AccessToken(api_key, api_secret)
+            .with_identity("participant")
+            .with_name("Candidate")
+            .with_grants(VideoGrants(room_join=True, room=session_id))
+            .to_jwt()
+        )
+        return {"token": token}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate token: {str(e)}")
 
 @app.get("/health")
 async def health_check():
