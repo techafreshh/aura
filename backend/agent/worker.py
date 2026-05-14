@@ -1,5 +1,14 @@
 import logging
 import httpx
+import sys
+import os
+from pathlib import Path
+
+# Add the backend directory to sys.path to allow running as a script
+backend_root = Path(__file__).parent.parent
+if str(backend_root) not in sys.path:
+    sys.path.append(str(backend_root))
+
 from dataclasses import dataclass
 from dotenv import load_dotenv
 from livekit.agents import (
@@ -26,11 +35,11 @@ class InterviewContext:
     plan: InterviewPlan
     current_phase: str = "Intro"
 
-class InterviewWorkflow(llm.ToolContext):
-    def __init__(self, plan: InterviewPlan, session: voice.AgentSession):
-        super().__init__()
+class InterviewWorkflow:
+    def __init__(self, plan: InterviewPlan, session: voice.AgentSession, session_id: str):
         self.context = InterviewContext(plan=plan)
         self.session = session
+        self.session_id = session_id
 
     @llm.function_tool(description="Evaluate the candidate's answer and suggest a follow-up question.")
     async def evaluate_answer(self, response_summary: str) -> str:
@@ -38,7 +47,7 @@ class InterviewWorkflow(llm.ToolContext):
         # Build prompt context for the evaluator
         prompt = f"Skills to look for: {self.context.plan.extracted_skills}\nCandidate's Answer: {response_summary}"
         result = await evaluator_agent.run(prompt)
-        eval_result = result.data
+        eval_result = result.output
         return f"Score: {eval_result.score}. Feedback: {eval_result.feedback}. Follow-up: {eval_result.suggested_follow_up}"
 
     @llm.function_tool(description="End the interview and generate a final report.")
@@ -49,6 +58,22 @@ class InterviewWorkflow(llm.ToolContext):
         result = await reporter_agent.run(f"Candidate Name: {self.context.plan.candidate_name}\nTranscript: {transcript}")
         report = result.output
         logger.info(f"Report generated with score: {report.overall_score}")
+
+        # Post the report to the backend
+        backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{backend_url}/report/{self.session_id}",
+                    json=report.model_dump()
+                )
+                if response.status_code == 200:
+                    logger.info("Successfully saved report to backend.")
+                else:
+                    logger.error(f"Failed to save report: {response.text}")
+        except Exception as e:
+            logger.error(f"Error saving report: {e}")
+
         self.context.current_phase = "Outro"
         return f"The interview is over. The final report has been generated with a score of {report.overall_score}."
 
@@ -58,22 +83,27 @@ async def entrypoint(ctx: JobContext):
     
     session_id = ctx.room.name
     
+    # Use the same port the user is running on if possible, otherwise default to 8000
+    backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
+    
     # Fetch plan from backend
     plan = None
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(f"http://localhost:8000/plan/{session_id}")
+            logger.info(f"Fetching plan from {backend_url}/plan/{session_id}")
+            response = await client.get(f"{backend_url}/plan/{session_id}")
             if response.status_code == 200:
                 plan_data = response.json()
                 plan = InterviewPlan(**plan_data)
                 logger.info(f"Successfully fetched plan for candidate: {plan.candidate_name}")
             else:
-                logger.warning(f"Failed to fetch plan: {response.text}")
+                logger.warning(f"Failed to fetch plan (Status {response.status_code}): {response.text}")
     except Exception as e:
-        logger.error(f"Error fetching plan: {e}")
+        logger.error(f"Error fetching plan from {backend_url}: {e}")
 
     # Fallback plan if fetch fails
     if not plan:
+        logger.info("Using fallback interview plan.")
         plan = InterviewPlan(candidate_name="Candidate", extracted_skills=[], question_bank=[])
 
     # Initialize the AgentSession with LiveKit's managed inference models.
@@ -84,7 +114,7 @@ async def entrypoint(ctx: JobContext):
         tts=inference.TTS(model="cartesia/sonic"),
     )
     
-    workflow = InterviewWorkflow(plan=plan, session=session)
+    workflow = InterviewWorkflow(plan=plan, session=session, session_id=session_id)
 
     # Initial instructions combining base instructions and the dynamic plan
     instructions = (
@@ -102,7 +132,7 @@ async def entrypoint(ctx: JobContext):
     # Define the Agent with instructions and tools
     agent = voice.Agent(
         instructions=instructions,
-        fnc_ctx=workflow
+        tools=llm.find_function_tools(workflow)
     )
 
     # Start the session with the agent

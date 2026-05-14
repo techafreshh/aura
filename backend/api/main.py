@@ -1,14 +1,25 @@
 import uuid
 import os
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from livekit.api import AccessToken, VideoGrants
 from agent.parser import agent
 from utils.pdf_parser import extract_text_from_pdf
-from models.schemas import UploadResponse, InterviewPlan
+from models.schemas import UploadResponse, InterviewPlan, FinalReport
 
 app = FastAPI(title="AI Interviewer API")
 
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 plans: dict[str, InterviewPlan] = {}
+reports: dict[str, FinalReport] = {}
 
 @app.post("/upload", response_model=UploadResponse)
 async def upload_resume(file: UploadFile = File(...)):
@@ -24,9 +35,6 @@ async def upload_resume(file: UploadFile = File(...)):
         text = await extract_text_from_pdf(file_bytes)
         
         # Run the AI Agent to parse the resume
-        # Note: agent.run_sync is used here as a simple synchronous call, 
-        # but in a real async environment agent.run might be preferred if available.
-        # Pydantic AI's Agent.run is async.
         result = await agent.run(text)
         
         # Generate a unique session ID
@@ -43,7 +51,9 @@ async def upload_resume(file: UploadFile = File(...)):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        # Log the error here in a real application
+        print(f"UPLOAD ERROR: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
 @app.get("/plan/{session_id}", response_model=InterviewPlan)
@@ -75,6 +85,18 @@ async def get_token(session_id: str = Query(..., description="The session ID/roo
         return {"token": token}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate token: {str(e)}")
+
+@app.post("/report/{session_id}")
+async def save_report(session_id: str, report: FinalReport):
+    reports[session_id] = report
+    return {"status": "success"}
+
+@app.get("/report/{session_id}", response_model=FinalReport)
+async def get_report(session_id: str):
+    report = reports.get(session_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found for the given session ID.")
+    return report
 
 @app.get("/health")
 async def health_check():

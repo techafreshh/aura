@@ -6,7 +6,7 @@ load_dotenv()
 
 # Define the Resume Parser Agent using the simplified OpenRouter string format
 agent = Agent(
-    'openrouter:mistralai/mistral-nemo',
+    'openrouter:deepseek/deepseek-v4-flash',
     output_type=InterviewPlan,
     system_prompt=(
         "You are an expert technical recruiter and interviewer. "

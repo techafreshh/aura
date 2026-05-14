@@ -6,7 +6,7 @@ load_dotenv()
 
 # Define the Report Generator Agent
 reporter_agent = Agent(
-    'openrouter:mistralai/mistral-nemo',
+    'openrouter:deepseek/deepseek-v4-flash',
     output_type=FinalReport,
     system_prompt=(
         "You are a senior technical recruiter responsible for summarizing an interview. "
