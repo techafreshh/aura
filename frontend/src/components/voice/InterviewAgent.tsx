@@ -5,13 +5,20 @@ import {
   useVoiceAssistant,
   useLocalParticipant,
   useIsSpeaking,
-  useChat,
   useTranscriptions,
   useConnectionState,
+  useMediaDeviceSelect,
 } from "@livekit/components-react";
 import { AgentAudioVisualizerAura } from "@/components/agents-ui/agent-audio-visualizer-aura";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { getReport } from "@/api/client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Track, ConnectionState } from "livekit-client";
 
@@ -19,6 +26,26 @@ interface InterviewAgentProps {
   token: string;
   sessionId: string;
   onInterviewEnd: (report: any) => void;
+}
+
+function MicrophoneSelector() {
+  const { devices, activeDeviceId, setActiveMediaDevice } = useMediaDeviceSelect({ kind: 'audioinput', requestPermissions: true });
+  const filtered = devices.filter(d => d.deviceId !== '');
+  if (filtered.length < 2) return null;
+  return (
+    <Select value={activeDeviceId} onValueChange={(id) => setActiveMediaDevice(id)}>
+      <SelectTrigger className="w-[220px] text-xs">
+        <SelectValue placeholder="Select microphone" />
+      </SelectTrigger>
+      <SelectContent>
+        {filtered.map(device => (
+          <SelectItem key={device.deviceId} value={device.deviceId} className="text-xs">
+            {device.label || `Microphone (${device.deviceId.slice(0, 8)})`}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
 }
 
 function InterviewInner({ sessionId, onInterviewEnd }: { sessionId: string; onInterviewEnd: (report: any) => void }) {
@@ -32,16 +59,6 @@ function InterviewInner({ sessionId, onInterviewEnd }: { sessionId: string; onIn
   // AI Agent Data
   const { state, audioTrack } = useVoiceAssistant();
   
-  // Try useTranscriptions instead of useChat
-  const transcriptions = useTranscriptions();
-  
-  // Map transcriptions to a unified message format (bypassing strict typing for now)
-  const transcriptMessages = transcriptions.map((t: any, idx: number) => ({
-    id: t.id || `msg-${idx}`,
-    message: t.text || t.message || '',
-    from: t.participant ? { isLocal: t.participant.isLocal } : { isLocal: false }
-  })).filter(msg => msg.message);
-  
   // Local User Data
   const { localParticipant } = useLocalParticipant();
   const isUserSpeaking = useIsSpeaking(localParticipant);
@@ -49,6 +66,29 @@ function InterviewInner({ sessionId, onInterviewEnd }: { sessionId: string; onIn
   
   // Derived state for the user's Aura visualizer
   const userState = isUserSpeaking ? 'speaking' : 'listening';
+
+  // Try useTranscriptions instead of useChat
+  const transcriptions = useTranscriptions();
+  
+  // Map transcriptions to a unified message format
+  // The agent publishes transcriptions for both itself and the user.
+  // We differentiate by checking if the transcribed track matches the user's mic track.
+  const localMicTrackSid = localParticipant?.getTrackPublication(Track.Source.Microphone)?.trackSid;
+  const transcriptMessages = transcriptions.map((t: any, idx: number) => {
+    const transcribedTrackId = t.streamInfo?.attributes?.['lk.transcribed_track_id'];
+    const isLocal = transcribedTrackId === localMicTrackSid;
+    return {
+      id: t.streamInfo?.id || `msg-${idx}`,
+      message: t.text || '',
+      isLocal,
+    };
+  }).filter(msg => msg.message);
+
+  // Auto-scroll transcript
+  const transcriptEndRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [transcriptMessages.length]);
 
   // Track if we ever successfully connected
   useEffect(() => {
@@ -64,13 +104,13 @@ function InterviewInner({ sessionId, onInterviewEnd }: { sessionId: string; onIn
       setIsEnding(true);
       
       const fetchReportWithRetry = async () => {
-        let retries = 3;
+        let retries = 10;
         while (retries > 0) {
           try {
-            await new Promise(resolve => setTimeout(resolve, 4000)); // Wait 4s before each try
+            await new Promise(resolve => setTimeout(resolve, 3000));
             const report = await getReport(sessionId);
             onInterviewEnd(report);
-            return; // Success, exit the function
+            return;
           } catch (error) {
             console.error(`Failed to fetch report. Retries left: ${retries - 1}`);
             retries--;
@@ -121,8 +161,11 @@ function InterviewInner({ sessionId, onInterviewEnd }: { sessionId: string; onIn
         </div>
         
         {/* Standard Controls */}
-        <div className="bg-background p-2 rounded-full shadow-lg border mt-12 z-50">
-          <ControlBar controls={{ microphone: true, camera: false, screenShare: false, leave: true }} />
+        <div className="mt-12 z-50 flex flex-col items-center gap-3">
+          <MicrophoneSelector />
+          <div className="bg-background p-2 rounded-full shadow-lg border">
+            <ControlBar controls={{ microphone: true, camera: false, screenShare: false, leave: true }} />
+          </div>
         </div>
 
         {isEnding && (
@@ -147,17 +190,18 @@ function InterviewInner({ sessionId, onInterviewEnd }: { sessionId: string; onIn
                <p className="text-xs text-muted-foreground text-center italic mt-auto">Waiting for conversation to start...</p>
              )}
              {transcriptMessages.map((msg, i) => (
-               <div key={i} className={`flex flex-col ${msg.from?.isLocal ? 'items-end' : 'items-start'}`}>
+               <div key={i} className={`flex flex-col ${msg.isLocal ? 'items-end' : 'items-start'}`}>
                  <span className="text-[10px] font-bold uppercase text-muted-foreground mb-1">
-                   {msg.from?.isLocal ? 'You' : 'AI Interviewer'}
+                   {msg.isLocal ? 'You' : 'AI Interviewer'}
                  </span>
                  <div className={`rounded-2xl px-4 py-2 text-sm max-w-[90%] shadow-sm ${
-                   msg.from?.isLocal ? 'bg-primary text-primary-foreground' : 'bg-muted border'
+                   msg.isLocal ? 'bg-primary text-primary-foreground' : 'bg-muted border'
                  }`}>
                    {msg.message}
                  </div>
                </div>
              ))}
+             <div ref={transcriptEndRef} />
            </div>
         </CardContent>
       </div>

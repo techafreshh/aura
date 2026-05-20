@@ -6,7 +6,7 @@ load_dotenv()
 
 # Define the Answer Evaluator Agent
 evaluator_agent = Agent(
-    'openrouter:deepseek/deepseek-v4-flash',
+    'openrouter:google/gemini-2.0-flash-001',
     output_type=EvaluationResult,
     system_prompt=(
         "You are an expert technical interviewer evaluating a candidate's answer. "
