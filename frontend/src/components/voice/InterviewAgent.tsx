@@ -6,6 +6,7 @@ import {
   useLocalParticipant,
   useIsSpeaking,
   useChat,
+  useTranscriptions,
   useConnectionState,
 } from "@livekit/components-react";
 import { AgentAudioVisualizerAura } from "@/components/agents-ui/agent-audio-visualizer-aura";
@@ -31,9 +32,15 @@ function InterviewInner({ sessionId, onInterviewEnd }: { sessionId: string; onIn
   // AI Agent Data
   const { state, audioTrack } = useVoiceAssistant();
   
-  // Get chat messages (transcripts) safely
-  const { chatMessages } = useChat();
-  const transcriptMessages = chatMessages || [];
+  // Try useTranscriptions instead of useChat
+  const transcriptions = useTranscriptions();
+  
+  // Map transcriptions to a unified message format (bypassing strict typing for now)
+  const transcriptMessages = transcriptions.map((t: any, idx: number) => ({
+    id: t.id || `msg-${idx}`,
+    message: t.text || t.message || '',
+    from: t.participant ? { isLocal: t.participant.isLocal } : { isLocal: false }
+  })).filter(msg => msg.message);
   
   // Local User Data
   const { localParticipant } = useLocalParticipant();
