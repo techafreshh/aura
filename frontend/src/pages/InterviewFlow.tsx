@@ -136,13 +136,6 @@ export function InterviewFlow() {
                 </div>
               </div>
 
-              <div>
-                <div className="label-row">Focus questions</div>
-                <ol className="question-list">
-                  {plan.question_bank.map((q, i) => <li key={i}>{q}</li>)}
-                </ol>
-              </div>
-
               <div className="btn-row">
                 <button className="btn btn-ghost" onClick={reset}>Cancel</button>
                 <button className="btn btn-primary" onClick={handleJoin} disabled={isConnecting}>
