@@ -1,0 +1,1245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Aura — The First Interview, Automated by Intelligence</title>
+<meta name="description" content="Aura is an AI interviewer agent. Real-time voice interviews that probe deeper, evaluate fairer, and report faster." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" />
+
+<style>
+  /* ---------- Tokens ---------- */
+  :root {
+    /* Base palette from brief */
+    --bg:        #09090b;          /* deep space black */
+    --bg-2:      #0c0c0f;
+    --surface:   rgba(255,255,255,0.03);
+    --surface-2: rgba(255,255,255,0.05);
+    --border:    #27272a;          /* zinc-800 */
+    --border-soft: rgba(255,255,255,0.06);
+
+    --fg:        #fafafa;
+    --fg-2:      #e4e4e7;
+    --muted:     #a1a1aa;          /* zinc-400 */
+    --muted-2:   #71717a;          /* zinc-500 */
+
+    --accent:    #6366f1;          /* indigo glow */
+    --accent-2:  #818cf8;
+    --accent-deep: #4338ca;
+    --success:   #10b981;          /* emerald */
+
+    /* Type */
+    --font-display: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-body:    'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+    /* Type scale (fluid) */
+    --t-display: clamp(40px, 6.4vw, 84px);
+    --t-h2:      clamp(28px, 3.4vw, 44px);
+    --t-h3:      clamp(20px, 1.6vw, 24px);
+    --t-body:    clamp(15px, 1.05vw, 17px);
+    --t-small:   13px;
+    --t-mono:    12px;
+
+    /* Spacing & rhythm */
+    --gutter:    clamp(20px, 4vw, 56px);
+    --section-y: clamp(72px, 9vw, 144px);
+    --radius-sm: 10px;
+    --radius:    16px;
+    --radius-lg: 24px;
+  }
+
+  /* ---------- Reset ---------- */
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    font-family: var(--font-body);
+    font-size: var(--t-body);
+    line-height: 1.55;
+    color: var(--fg-2);
+    background: var(--bg);
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  img, svg { display: block; max-width: 100%; }
+  a { color: inherit; text-decoration: none; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  ::selection { background: color-mix(in oklab, var(--accent) 50%, transparent); color: white; }
+
+  /* ---------- Page ambient ---------- */
+  .page-ambient {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+  }
+  .page-ambient::before {
+    /* Top-right indigo wash */
+    content: '';
+    position: absolute;
+    top: -20%; right: -10%;
+    width: 720px; height: 720px;
+    background: radial-gradient(closest-side, rgba(99,102,241,0.20), transparent 70%);
+    filter: blur(20px);
+  }
+  .page-ambient::after {
+    /* Bottom-left subtle wash */
+    content: '';
+    position: absolute;
+    bottom: -25%; left: -10%;
+    width: 640px; height: 640px;
+    background: radial-gradient(closest-side, rgba(67,56,202,0.18), transparent 70%);
+    filter: blur(20px);
+  }
+  .grid-mesh {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image:
+      linear-gradient(to right, rgba(255,255,255,0.025) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: radial-gradient(ellipse 90% 70% at 50% 30%, black 30%, transparent 80%);
+    -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 30%, black 30%, transparent 80%);
+  }
+
+  /* ---------- Layout ---------- */
+  .container {
+    width: 100%;
+    max-width: 1280px;
+    margin: 0 auto;
+    padding-inline: var(--gutter);
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ---------- Nav ---------- */
+  .nav {
+    position: sticky;
+    top: 12px;
+    z-index: 50;
+    max-width: 1100px;
+    width: calc(100% - 32px);
+    margin: 12px auto 0;
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    background: color-mix(in oklab, var(--bg) 85%, transparent);
+    border: 1px solid var(--border-soft);
+    border-radius: 20px;
+    box-shadow: 
+      0 12px 40px -12px rgba(0, 0, 0, 0.5),
+      0 0 0 1px rgba(255, 255, 255, 0.03);
+    transition: background 0.3s ease, border-color 0.3s ease;
+  }
+  .nav-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 56px;
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    color: var(--fg);
+    letter-spacing: -0.01em;
+  }
+  .brand .mark {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle at 35% 30%, rgba(255,255,255,0.65), transparent 50%),
+      radial-gradient(circle at 50% 50%, var(--accent-2), var(--accent) 45%, var(--accent-deep) 75%, #0a0a12 100%);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 0 18px rgba(99,102,241,0.55);
+  }
+  .nav-links {
+    display: none;
+    gap: 28px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .nav-links a:hover { color: var(--fg); transition: color .2s; }
+  .nav-cta {
+    display: flex; align-items: center; gap: 10px;
+  }
+  @media (min-width: 820px) {
+    .nav-links { display: inline-flex; }
+  }
+
+  /* ---------- Buttons ---------- */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 16px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: -0.005em;
+    transition: transform .15s ease, background .2s ease, border-color .2s ease, color .2s ease, box-shadow .25s ease;
+    white-space: nowrap;
+  }
+  .btn-primary {
+    color: white;
+    background: linear-gradient(180deg, var(--accent-2), var(--accent));
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.08) inset,
+      0 1px 0 rgba(255,255,255,0.25) inset,
+      0 8px 24px -10px rgba(99,102,241,0.7),
+      0 2px 6px rgba(0,0,0,0.3);
+  }
+  .btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.12) inset,
+      0 1px 0 rgba(255,255,255,0.3) inset,
+      0 14px 32px -10px rgba(99,102,241,0.85),
+      0 4px 10px rgba(0,0,0,0.35);
+  }
+  .btn-ghost {
+    color: var(--fg-2);
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.02);
+  }
+  .btn-ghost:hover { border-color: rgba(255,255,255,0.18); background: rgba(255,255,255,0.04); }
+  .btn-lg { height: 46px; padding: 0 22px; font-size: 15px; border-radius: 12px; }
+  .btn-sm { height: 34px; padding: 0 12px; font-size: 13px; border-radius: 8px; }
+
+  .arrow { width: 14px; height: 14px; }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    padding-top: clamp(80px, 10vw, 120px);
+    padding-bottom: clamp(40px, 6vw, 96px);
+    position: relative;
+  }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: clamp(40px, 6vw, 56px);
+    align-items: center;
+  }
+  @media (min-width: 1024px) {
+    .hero-grid { grid-template-columns: minmax(0,1.1fr) minmax(0,1fr); }
+  }
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px 5px 6px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: rgba(255,255,255,0.02);
+    font-size: 12px;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    letter-spacing: 0;
+  }
+  .eyebrow .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 0 3px rgba(16,185,129,0.18), 0 0 12px rgba(16,185,129,0.5);
+  }
+  .display {
+    margin: 18px 0 18px;
+    font-family: var(--font-display);
+    font-size: var(--t-display);
+    line-height: 1.02;
+    letter-spacing: -0.035em;
+    font-weight: 600;
+    color: var(--fg);
+    text-wrap: balance;
+  }
+  .display em {
+    font-style: normal;
+    background: linear-gradient(180deg, #fff 0%, #d4d4ff 60%, #818cf8 100%);
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent;
+  }
+  .lede {
+    color: var(--muted);
+    font-size: clamp(16px, 1.2vw, 19px);
+    max-width: 56ch;
+    line-height: 1.55;
+    text-wrap: pretty;
+  }
+  .hero-cta {
+    margin-top: 28px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .hero-meta {
+    margin-top: 28px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--muted-2);
+  }
+  .hero-meta .sep { width: 1px; height: 12px; background: var(--border); }
+
+  /* ---------- Aura Orb ---------- */
+  .orb-stage {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    width: 100%;
+    max-width: 520px;
+    margin-inline: auto;
+    isolation: isolate;
+  }
+  .orb-stage .ring-set { position: absolute; inset: 0; }
+  .orb-stage .ring {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 1px solid rgba(99,102,241,0.20);
+    animation: ring 5.6s ease-out infinite;
+    opacity: 0;
+  }
+  .orb-stage .ring.r2 { animation-delay: 1.4s; }
+  .orb-stage .ring.r3 { animation-delay: 2.8s; }
+  .orb-stage .ring.r4 { animation-delay: 4.2s; }
+  @keyframes ring {
+    0%   { transform: scale(0.55); opacity: 0; }
+    20%  { opacity: 0.7; }
+    100% { transform: scale(1.25); opacity: 0; }
+  }
+
+  .orb-stage .glow-outer {
+    position: absolute;
+    inset: -10%;
+    border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(99,102,241,0.45), transparent 70%);
+    filter: blur(24px);
+    z-index: 0;
+    animation: pulse 5s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 0.85; }
+    50%      { transform: scale(1.06); opacity: 1; }
+  }
+
+  .orb-stage .core {
+    position: absolute;
+    inset: 18%;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle at 32% 28%, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.18) 12%, transparent 26%),
+      radial-gradient(circle at 50% 50%, #a5b4fc 0%, #818cf8 18%, #6366f1 38%, #4338ca 62%, #1e1b4b 86%, #0a0a12 100%);
+    box-shadow:
+      inset 0 0 40px rgba(99,102,241,0.6),
+      inset 0 -30px 60px rgba(10,10,18,0.7),
+      0 0 80px rgba(99,102,241,0.55),
+      0 0 0 1px rgba(255,255,255,0.08);
+    overflow: hidden;
+    z-index: 2;
+    animation: breathe 5s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.025); }
+  }
+  .orb-stage .core::before {
+    /* Swirling thinking pattern */
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      conic-gradient(from 0deg,
+        rgba(255,255,255,0.0) 0deg,
+        rgba(255,255,255,0.18) 60deg,
+        rgba(99,102,241,0.0) 140deg,
+        rgba(255,255,255,0.10) 220deg,
+        rgba(99,102,241,0.0) 300deg,
+        rgba(255,255,255,0.0) 360deg);
+    mix-blend-mode: screen;
+    filter: blur(8px);
+    animation: swirl 14s linear infinite;
+  }
+  @keyframes swirl { to { transform: rotate(360deg); } }
+  .orb-stage .core::after {
+    /* Top highlight */
+    content: '';
+    position: absolute;
+    top: 6%; left: 14%;
+    width: 36%; height: 22%;
+    border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(255,255,255,0.6), transparent 70%);
+    filter: blur(6px);
+  }
+
+  /* Light streaks */
+  .orb-stage .streaks {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+  }
+  .orb-stage .streak {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 2px;
+    height: 60%;
+    background: linear-gradient(180deg, transparent, rgba(165,180,252,0.5), transparent);
+    transform-origin: 50% 0%;
+    animation: streak-fade 6s linear infinite;
+    border-radius: 999px;
+    filter: blur(0.4px);
+  }
+  @keyframes streak-fade {
+    0%   { opacity: 0; transform: translate(-50%, 0) rotate(var(--a)) scaleY(0.4); }
+    30%  { opacity: 0.9; }
+    70%  { opacity: 0.7; }
+    100% { opacity: 0; transform: translate(-50%, 0) rotate(var(--a)) scaleY(1.2); }
+  }
+
+  /* Particle dust */
+  .orb-stage .dust {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 3;
+  }
+  .orb-stage .dust span {
+    position: absolute;
+    width: 2px; height: 2px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.7);
+    box-shadow: 0 0 6px rgba(165,180,252,0.9);
+    animation: float 8s ease-in-out infinite;
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0); opacity: 0.4; }
+    50%      { transform: translateY(-8px); opacity: 1; }
+  }
+
+  /* Status badge floating near orb */
+  .orb-status {
+    position: absolute;
+    bottom: 6%; left: 50%;
+    transform: translateX(-50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(9,9,11,0.7);
+    border: 1px solid var(--border);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--fg-2);
+    letter-spacing: 0.02em;
+    z-index: 4;
+  }
+  .orb-status .pulse {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 0 2px rgba(16,185,129,0.18), 0 0 8px rgba(16,185,129,0.5);
+    animation: blink 2.4s ease-in-out infinite;
+  }
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.5; }
+  }
+
+  /* ---------- Section header ---------- */
+  .section { padding-block: var(--section-y); position: relative; }
+  .section-head {
+    display: flex; flex-direction: column; gap: 14px;
+    margin-bottom: clamp(36px, 4vw, 64px);
+    max-width: 760px;
+  }
+  .kicker {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--accent-2);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .h2 {
+    font-family: var(--font-display);
+    font-size: var(--t-h2);
+    line-height: 1.05;
+    letter-spacing: -0.025em;
+    font-weight: 600;
+    color: var(--fg);
+    margin: 0;
+    text-wrap: balance;
+  }
+  .lede-2 { color: var(--muted); max-width: 60ch; }
+
+  /* ---------- Bento grid ---------- */
+  .bento {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  @media (min-width: 760px) {
+    .bento { grid-template-columns: repeat(2, 1fr); gap: 18px; }
+    .bento .card-resume { grid-column: span 2; }
+  }
+  @media (min-width: 1100px) {
+    .bento {
+      grid-template-columns: 1.4fr 1fr;
+      grid-template-rows: auto auto;
+      gap: 20px;
+    }
+    .bento .card-resume { grid-row: span 2; grid-column: 1; }
+    .bento .card-voice  { grid-column: 2; grid-row: 1; }
+    .bento .card-report { grid-column: 2; grid-row: 2; }
+  }
+
+  .card {
+    position: relative;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015));
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    overflow: hidden;
+    transition: border-color .25s ease, transform .25s ease;
+  }
+  .card:hover { border-color: rgba(255,255,255,0.14); }
+  .card::before {
+    /* Soft top highlight */
+    content: '';
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent);
+  }
+  .card-body {
+    padding: clamp(22px, 2.4vw, 32px);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .card .label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted-2);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .card h3 {
+    font-family: var(--font-display);
+    font-size: var(--t-h3);
+    line-height: 1.2;
+    letter-spacing: -0.015em;
+    color: var(--fg);
+    font-weight: 600;
+    margin: 0;
+  }
+  .card p { color: var(--muted); margin: 0; }
+  .mock {
+    margin-top: 8px;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    padding: 16px;
+    background:
+      radial-gradient(120% 80% at 100% 0%, rgba(99,102,241,0.10), transparent 50%),
+      linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.25));
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* ----- Card 1: Resume Intelligence mock ----- */
+  .resume-mock {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    align-items: stretch;
+  }
+  @media (max-width: 540px) {
+    .resume-mock { grid-template-columns: 1fr; }
+  }
+  .resume-doc {
+    background: linear-gradient(180deg, #18181b, #0e0e11);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted);
+    position: relative;
+    min-height: 220px;
+  }
+  .resume-doc .file-tab {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--muted-2);
+    font-size: 10px;
+    margin-bottom: 12px;
+  }
+  .resume-doc .file-tab::before {
+    content: ''; width: 6px; height: 8px;
+    background: #ef4444; border-radius: 1px;
+  }
+  .resume-doc .name { color: var(--fg); font-family: var(--font-display); font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
+  .resume-doc .role { color: var(--muted); font-size: 11px; margin-top: 2px; margin-bottom: 12px; }
+  .resume-doc .bar {
+    height: 6px; background: rgba(255,255,255,0.05); border-radius: 3px; margin: 6px 0;
+  }
+  .resume-doc .bar.short { width: 40%; }
+  .resume-doc .bar.med   { width: 70%; }
+  .resume-doc .bar.full  { width: 92%; }
+  .resume-doc .skill-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 12px; }
+  .resume-doc .tag {
+    font-size: 9px; padding: 3px 6px; border-radius: 4px;
+    background: rgba(99,102,241,0.12); color: #c7d2fe;
+    border: 1px solid rgba(99,102,241,0.22);
+  }
+
+  .resume-arrow {
+    position: absolute;
+    top: 50%;
+    right: -22px;
+    transform: translateY(-50%);
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: var(--accent);
+    display: grid; place-items: center;
+    color: white;
+    box-shadow: 0 0 22px rgba(99,102,241,0.55);
+    z-index: 3;
+  }
+  @media (max-width: 540px) {
+    .resume-arrow { display: none; }
+  }
+  .resume-arrow svg { width: 14px; height: 14px; }
+
+  .resume-rubric {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    background: linear-gradient(180deg, rgba(99,102,241,0.06), rgba(255,255,255,0.01));
+    display: flex; flex-direction: column; gap: 10px;
+    position: relative;
+  }
+  .rubric-head {
+    display: flex; align-items: center; justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--muted-2);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .rubric-head .live {
+    display: inline-flex; align-items: center; gap: 5px;
+    color: var(--success);
+  }
+  .rubric-head .live::before { content: ''; width: 6px; height: 6px; background: var(--success); border-radius: 50%; box-shadow: 0 0 8px var(--success); }
+  .rubric-item {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 12px; color: var(--fg-2);
+  }
+  .rubric-item .check {
+    width: 16px; height: 16px; border-radius: 4px;
+    background: rgba(99,102,241,0.18);
+    border: 1px solid rgba(99,102,241,0.5);
+    display: grid; place-items: center;
+    flex-shrink: 0;
+  }
+  .rubric-item .check svg { width: 10px; height: 10px; color: #a5b4fc; }
+  .rubric-item.pending .check { background: transparent; border-color: var(--border); }
+  .rubric-item.pending .check svg { display: none; }
+  .rubric-item .weight {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--muted-2);
+  }
+
+  /* ----- Card 2: Voice mock ----- */
+  .voice-mock { display: flex; flex-direction: column; gap: 12px; }
+  .voice-row {
+    display: flex; align-items: center; gap: 12px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted-2);
+  }
+  .voice-row .latency {
+    color: var(--success);
+    font-weight: 500;
+  }
+  .wave {
+    height: 80px;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 0 4px;
+  }
+  .wave .bar {
+    flex: 1;
+    background: linear-gradient(180deg, var(--accent-2), var(--accent));
+    border-radius: 2px;
+    min-width: 2px;
+    animation: wave 1.6s ease-in-out infinite;
+    transform-origin: center;
+  }
+  @keyframes wave {
+    0%, 100% { transform: scaleY(0.3); }
+    50%      { transform: scaleY(1); }
+  }
+  .voice-transcript {
+    border-top: 1px dashed var(--border);
+    padding-top: 12px;
+    display: flex; flex-direction: column; gap: 8px;
+    font-size: 12px;
+  }
+  .line { display: flex; gap: 10px; }
+  .line .who { font-family: var(--font-mono); font-size: 10px; color: var(--muted-2); width: 56px; flex-shrink: 0; padding-top: 2px; }
+  .line .what { color: var(--fg-2); }
+  .line.aura .who { color: var(--accent-2); }
+
+  /* ----- Card 3: Report mock ----- */
+  .report-mock { display: flex; flex-direction: column; gap: 14px; }
+  .candidate-row {
+    display: flex; align-items: center; gap: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: linear-gradient(135deg, #6366f1, #4338ca);
+    color: white; display: grid; place-items: center;
+    font-weight: 600; font-size: 12px;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .candidate-row .name { color: var(--fg); font-size: 13px; font-weight: 500; }
+  .candidate-row .role { color: var(--muted-2); font-size: 11px; }
+  .candidate-row .score {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--success);
+    background: rgba(16,185,129,0.12);
+    border: 1px solid rgba(16,185,129,0.3);
+    padding: 3px 8px;
+    border-radius: 6px;
+  }
+  .metric {
+    display: grid;
+    grid-template-columns: 110px 1fr 36px;
+    gap: 10px;
+    align-items: center;
+    font-size: 12px;
+  }
+  .metric .label-m { color: var(--muted); }
+  .metric .track {
+    height: 6px; background: rgba(255,255,255,0.06);
+    border-radius: 3px; overflow: hidden;
+  }
+  .metric .fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-deep), var(--accent), var(--accent-2));
+    border-radius: 3px;
+    box-shadow: 0 0 12px rgba(99,102,241,0.5);
+  }
+  .metric .val {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--fg-2);
+    text-align: right;
+  }
+
+  /* ---------- Social proof ---------- */
+  .proof {
+    border-block: 1px solid var(--border-soft);
+    padding-block: clamp(40px, 5vw, 64px);
+    background:
+      radial-gradient(80% 60% at 50% 0%, rgba(99,102,241,0.06), transparent 70%);
+  }
+  .proof-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 28px;
+    align-items: center;
+  }
+  @media (min-width: 820px) {
+    .proof-row { grid-template-columns: auto 1fr; gap: 56px; }
+  }
+  .proof-label {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--muted-2);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .stack-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: clamp(20px, 3vw, 40px);
+    align-items: center;
+  }
+  .logo-mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--fg-2);
+    font-weight: 500;
+    letter-spacing: -0.005em;
+    opacity: 0.9;
+    transition: opacity .2s;
+  }
+  .logo-mark:hover { opacity: 1; }
+  .logo-mark .glyph {
+    width: 24px; height: 24px;
+    display: grid; place-items: center;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: rgba(255,255,255,0.02);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--accent-2);
+  }
+
+  /* ---------- Final CTA ---------- */
+  .cta-section {
+    position: relative;
+    padding-block: clamp(80px, 10vw, 160px);
+    text-align: center;
+    overflow: hidden;
+  }
+  .cta-bg {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(60% 60% at 50% 50%, rgba(99,102,241,0.22), transparent 70%),
+      radial-gradient(30% 30% at 50% 50%, rgba(129,140,248,0.18), transparent 70%);
+    filter: blur(8px);
+    z-index: 0;
+    pointer-events: none;
+  }
+  .cta-section .container { position: relative; z-index: 2; }
+  .cta-section h2 {
+    font-family: var(--font-display);
+    font-size: clamp(34px, 4.6vw, 60px);
+    line-height: 1.04;
+    letter-spacing: -0.03em;
+    font-weight: 600;
+    color: var(--fg);
+    margin: 0 0 18px;
+    text-wrap: balance;
+  }
+  .cta-section p {
+    color: var(--muted);
+    max-width: 52ch;
+    margin: 0 auto 28px;
+    font-size: clamp(15px, 1.1vw, 17px);
+  }
+  .cta-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+  .cta-mini-orb {
+    width: 80px; height: 80px;
+    margin: 0 auto 28px;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle at 32% 28%, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.18) 12%, transparent 26%),
+      radial-gradient(circle at 50% 50%, #a5b4fc 0%, #818cf8 18%, #6366f1 38%, #4338ca 62%, #1e1b4b 86%, #0a0a12 100%);
+    box-shadow:
+      inset 0 0 30px rgba(99,102,241,0.6),
+      inset 0 -16px 30px rgba(10,10,18,0.7),
+      0 0 60px rgba(99,102,241,0.6);
+    animation: breathe 5s ease-in-out infinite;
+  }
+
+  /* ---------- Footer ---------- */
+  .footer {
+    border-top: 1px solid var(--border-soft);
+    padding-block: 36px;
+    color: var(--muted-2);
+    font-size: 13px;
+  }
+  .footer-row {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    align-items: flex-start;
+  }
+  @media (min-width: 720px) {
+    .footer-row { flex-direction: row; align-items: center; justify-content: space-between; }
+  }
+  .footer-links {
+    display: flex; flex-wrap: wrap; gap: 22px;
+  }
+  .footer-links a:hover { color: var(--fg-2); transition: color .2s; }
+  .footer-meta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted-2);
+  }
+
+  /* ---------- Reduced motion ---------- */
+  @media (prefers-reduced-motion: reduce) {
+    .ring, .glow-outer, .core, .core::before, .streak, .dust span,
+    .wave .bar, .cta-mini-orb, .orb-status .pulse {
+      animation: none !important;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div class="page-ambient" aria-hidden="true"></div>
+<div class="grid-mesh" aria-hidden="true"></div>
+
+<!-- ============ NAV ============ -->
+<header class="nav" role="banner">
+  <div class="container nav-row">
+    <a href="#" class="brand" aria-label="Aura, AI interviewer">
+      <span class="mark" aria-hidden="true"></span>
+      <span>Aura</span>
+    </a>
+    <nav class="nav-links" aria-label="Primary">
+      <a href="index.html" style="color: var(--fg);">Product</a>
+      <a href="dashboard.html">Dashboard</a>
+      <a href="rubric-builder.html">Rubrics</a>
+      <a href="sample-report.html">Intelligence</a>
+    </nav>
+    <div class="nav-cta">
+      <a href="#signin" class="btn btn-sm btn-ghost" aria-label="Sign in">Sign in</a>
+      <a href="interview-arena.html" class="btn btn-sm btn-primary">
+        Get started
+        <svg class="arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8h10m-4-4 4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </a>
+    </div>
+  </div>
+</header>
+
+<!-- ============ HERO ============ -->
+<section class="hero" aria-labelledby="hero-title">
+  <div class="container hero-grid">
+    <div>
+      <span class="eyebrow">
+        <span class="dot" aria-hidden="true"></span>
+        v1.4 — now with structured rubric exports
+      </span>
+      <h1 id="hero-title" class="display">
+        The first interview,<br/>
+        <em>automated by intelligence.</em>
+      </h1>
+      <p class="lede">
+        Scale your hiring with Aura. Real-time voice interviews that probe deeper, evaluate fairer, and report faster — so your team only meets the candidates worth meeting.
+      </p>
+      <div class="hero-cta">
+        <a href="interview-arena.html" class="btn btn-lg btn-primary">
+          Start a Mock Interview
+          <svg class="arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8h10m-4-4 4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <a href="sample-report.html" class="btn btn-lg btn-ghost">View Sample Report</a>
+      </div>
+      <div class="hero-meta">
+        <span>SOC 2 Type II</span>
+        <span class="sep" aria-hidden="true"></span>
+        <span>EEOC-aligned scoring</span>
+        <span class="sep" aria-hidden="true"></span>
+        <span>72-language voice</span>
+      </div>
+    </div>
+
+    <!-- Aura Orb -->
+    <div class="orb-stage" role="img" aria-label="Aura, an indigo orb pulsing with concentric rings">
+      <div class="glow-outer" aria-hidden="true"></div>
+      <div class="ring-set" aria-hidden="true">
+        <div class="ring r1"></div>
+        <div class="ring r2"></div>
+        <div class="ring r3"></div>
+        <div class="ring r4"></div>
+      </div>
+      <div class="streaks" aria-hidden="true">
+        <span class="streak" style="--a:18deg"></span>
+        <span class="streak" style="--a:74deg; animation-delay: 1.2s"></span>
+        <span class="streak" style="--a:142deg; animation-delay: 2.6s"></span>
+        <span class="streak" style="--a:212deg; animation-delay: 0.6s"></span>
+        <span class="streak" style="--a:286deg; animation-delay: 3.4s"></span>
+        <span class="streak" style="--a:332deg; animation-delay: 4.6s"></span>
+      </div>
+      <div class="core" aria-hidden="true"></div>
+      <div class="dust" aria-hidden="true">
+        <span style="top: 12%; left: 78%; animation-delay: 0s"></span>
+        <span style="top: 30%; left: 14%; animation-delay: 1.2s"></span>
+        <span style="top: 76%; left: 22%; animation-delay: 2.4s"></span>
+        <span style="top: 84%; left: 64%; animation-delay: 0.6s"></span>
+        <span style="top: 18%; left: 50%; animation-delay: 3.2s"></span>
+        <span style="top: 58%; left: 88%; animation-delay: 4.4s"></span>
+      </div>
+      <div class="orb-status" aria-hidden="true">
+        <span class="pulse"></span>
+        <span>Aura · listening</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FEATURES (BENTO) ============ -->
+<section class="section" id="features" aria-labelledby="features-title">
+  <div class="container">
+    <div class="section-head">
+      <span class="kicker">Capabilities</span>
+      <h2 id="features-title" class="h2">A complete intake-to-report loop, in a single conversation.</h2>
+      <p class="lede-2 lede">Three capabilities, working together. From the moment a resume is uploaded to the moment your hiring manager opens the report.</p>
+    </div>
+
+    <div class="bento">
+
+      <!-- Card 1: Resume Intelligence -->
+      <article class="card card-resume" style="cursor: pointer;" onclick="window.location.href='rubric-builder.html'">
+        <div class="card-body">
+          <span class="label">01 — Intake</span>
+          <h3>Resume Intelligence</h3>
+          <p>Upload any PDF. Aura builds a custom interview rubric in seconds — calibrated to the role, the candidate's claimed experience, and the gaps worth probing.</p>
+
+          <div class="mock">
+            <div class="resume-mock">
+              <!-- Resume PDF -->
+              <div class="resume-doc" role="img" aria-label="Resume document being parsed">
+                <div class="file-tab">resume_dahlia_chen.pdf</div>
+                <div class="name">Dahlia Chen</div>
+                <div class="role">Senior Backend Engineer · 6 yrs</div>
+                <div class="bar full"></div>
+                <div class="bar med"></div>
+                <div class="bar full"></div>
+                <div class="bar short"></div>
+                <div class="bar med"></div>
+                <div class="skill-tags">
+                  <span class="tag">Go</span>
+                  <span class="tag">Postgres</span>
+                  <span class="tag">Kafka</span>
+                  <span class="tag">gRPC</span>
+                  <span class="tag">k8s</span>
+                </div>
+                <div class="resume-arrow" aria-hidden="true">
+                  <svg viewBox="0 0 16 16" fill="none"><path d="M3 8h10m-4-4 4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </div>
+              </div>
+
+              <!-- Generated rubric -->
+              <div class="resume-rubric">
+                <div class="rubric-head">
+                  <span>Generated rubric</span>
+                  <span class="live">Building</span>
+                </div>
+                <div class="rubric-item">
+                  <span class="check"><svg viewBox="0 0 12 12" fill="none"><path d="M2.5 6.5 5 9l4.5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                  <span>Distributed systems depth</span>
+                  <span class="weight">0.30</span>
+                </div>
+                <div class="rubric-item">
+                  <span class="check"><svg viewBox="0 0 12 12" fill="none"><path d="M2.5 6.5 5 9l4.5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                  <span>Kafka — claimed, probe specifics</span>
+                  <span class="weight">0.22</span>
+                </div>
+                <div class="rubric-item">
+                  <span class="check"><svg viewBox="0 0 12 12" fill="none"><path d="M2.5 6.5 5 9l4.5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                  <span>API design & versioning</span>
+                  <span class="weight">0.18</span>
+                </div>
+                <div class="rubric-item pending">
+                  <span class="check"></span>
+                  <span>Data modeling for scale</span>
+                  <span class="weight">0.18</span>
+                </div>
+                <div class="rubric-item pending">
+                  <span class="check"></span>
+                  <span>Communication clarity</span>
+                  <span class="weight">0.12</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- Card 2: Low-Latency Voice -->
+      <article class="card card-voice">
+        <div class="card-body">
+          <span class="label">02 — Conversation</span>
+          <h3>Low-Latency Voice</h3>
+          <p>Zero lag. Natural conversations powered by LiveKit and native LLMs — Aura interrupts, clarifies, and follows up the way a senior engineer would.</p>
+
+          <div class="mock">
+            <div class="voice-mock">
+              <div class="voice-row">
+                <span>WSS · candidate ⇄ aura</span>
+                <span class="latency" style="margin-left:auto;">12ms</span>
+              </div>
+              <div class="wave" aria-hidden="true">
+                <span class="bar" style="height: 30%; animation-delay: -0.1s"></span>
+                <span class="bar" style="height: 60%; animation-delay: -0.3s"></span>
+                <span class="bar" style="height: 80%; animation-delay: -0.5s"></span>
+                <span class="bar" style="height: 50%; animation-delay: -0.2s"></span>
+                <span class="bar" style="height: 90%; animation-delay: -0.6s"></span>
+                <span class="bar" style="height: 70%; animation-delay: -0.4s"></span>
+                <span class="bar" style="height: 100%; animation-delay: -0.7s"></span>
+                <span class="bar" style="height: 55%; animation-delay: -0.3s"></span>
+                <span class="bar" style="height: 75%; animation-delay: -0.5s"></span>
+                <span class="bar" style="height: 40%; animation-delay: -0.1s"></span>
+                <span class="bar" style="height: 65%; animation-delay: -0.4s"></span>
+                <span class="bar" style="height: 85%; animation-delay: -0.6s"></span>
+                <span class="bar" style="height: 45%; animation-delay: -0.2s"></span>
+                <span class="bar" style="height: 70%; animation-delay: -0.5s"></span>
+                <span class="bar" style="height: 30%; animation-delay: -0.1s"></span>
+                <span class="bar" style="height: 60%; animation-delay: -0.3s"></span>
+                <span class="bar" style="height: 90%; animation-delay: -0.7s"></span>
+                <span class="bar" style="height: 50%; animation-delay: -0.2s"></span>
+              </div>
+              <div class="voice-transcript">
+                <div class="line aura">
+                  <span class="who">aura</span>
+                  <span class="what">You mentioned a Kafka migration last year — what made the previous queue insufficient?</span>
+                </div>
+                <div class="line">
+                  <span class="who">candidate</span>
+                  <span class="what">Throughput. We were hitting partition limits on RabbitMQ around—</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- Card 3: Reporting -->
+      <article class="card card-report">
+        <div class="card-body">
+          <span class="label">03 — Output</span>
+          <h3>In-Depth Reporting</h3>
+          <p>Objective, structured data on every candidate. No more bias, just performance — exported in a format your ATS already understands.</p>
+
+          <div class="mock">
+            <div class="report-mock">
+              <div class="candidate-row">
+                <div class="avatar" aria-hidden="true">DC</div>
+                <div>
+                  <div class="name">Dahlia Chen</div>
+                  <div class="role">Sr. Backend Engineer</div>
+                </div>
+                <span class="score">8.7 / 10</span>
+              </div>
+              <div class="metric">
+                <span class="label-m">Distributed</span>
+                <span class="track"><span class="fill" style="width: 92%"></span></span>
+                <span class="val">9.2</span>
+              </div>
+              <div class="metric">
+                <span class="label-m">API design</span>
+                <span class="track"><span class="fill" style="width: 84%"></span></span>
+                <span class="val">8.4</span>
+              </div>
+              <div class="metric">
+                <span class="label-m">Data modeling</span>
+                <span class="track"><span class="fill" style="width: 78%"></span></span>
+                <span class="val">7.8</span>
+              </div>
+              <div class="metric">
+                <span class="label-m">Communication</span>
+                <span class="track"><span class="fill" style="width: 88%"></span></span>
+                <span class="val">8.8</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============ SOCIAL PROOF / STACK ============ -->
+<section class="proof" id="stack" aria-labelledby="stack-title">
+  <div class="container proof-row">
+    <div class="proof-label" id="stack-title">Built on</div>
+    <div class="stack-row">
+      <a href="#" class="logo-mark" aria-label="LiveKit">
+        <span class="glyph" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
+            <rect x="1" y="6" width="3" height="4" rx="0.5"/>
+            <rect x="6" y="3" width="3" height="10" rx="0.5"/>
+            <rect x="11" y="6" width="3" height="4" rx="0.5"/>
+          </svg>
+        </span>
+        <span>LiveKit</span>
+      </a>
+      <a href="#" class="logo-mark" aria-label="Pydantic AI">
+        <span class="glyph" aria-hidden="true">{ }</span>
+        <span>Pydantic AI</span>
+      </a>
+      <a href="#" class="logo-mark" aria-label="OpenAI Realtime">
+        <span class="glyph" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <circle cx="8" cy="8" r="6.2"/>
+            <path d="M8 1.8v12.4M1.8 8h12.4"/>
+          </svg>
+        </span>
+        <span>OpenAI Realtime</span>
+      </a>
+      <a href="#" class="logo-mark" aria-label="Deepgram">
+        <span class="glyph" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor" aria-hidden="true">
+            <path d="M2 8a6 6 0 1 1 12 0 6 6 0 0 1-12 0Zm6-3.6L4.8 8 8 11.6 11.2 8 8 4.4Z"/>
+          </svg>
+        </span>
+        <span>Deepgram</span>
+      </a>
+      <a href="#" class="logo-mark" aria-label="Postgres">
+        <span class="glyph" aria-hidden="true">pg</span>
+        <span>Postgres</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FINAL CTA ============ -->
+<section class="cta-section" id="start" aria-labelledby="cta-title">
+  <div class="cta-bg" aria-hidden="true"></div>
+  <div class="container">
+    <div class="cta-mini-orb" aria-hidden="true"></div>
+    <h2 id="cta-title">Meet your next senior interviewer.</h2>
+    <p>Run a 12-minute mock interview against your own job description. Walk away with a real rubric, a real transcript, and a real report.</p>
+    <div class="cta-actions">
+      <a href="interview-arena.html" class="btn btn-lg btn-primary">
+        Start a Mock Interview
+        <svg class="arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8h10m-4-4 4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </a>
+      <a href="sample-report.html" class="btn btn-lg btn-ghost">View Sample Report</a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer class="footer">
+  <div class="container footer-row">
+    <div style="display:flex; align-items:center; gap: 10px;">
+      <span class="brand" style="color: var(--fg-2);">
+        <span class="mark" aria-hidden="true"></span>
+        <span>Aura</span>
+      </span>
+      <span class="footer-meta" style="margin-left: 16px;">© 2026 Aura Labs</span>
+    </div>
+    <nav class="footer-links" aria-label="Footer">
+      <a href="#">Product</a>
+      <a href="#">Reports</a>
+      <a href="#">Pricing</a>
+      <a href="#">Security</a>
+      <a href="#">Docs</a>
+      <a href="#">Privacy</a>
+    </nav>
+    <div class="footer-meta">v1.4.2 · sha 9f3c1ab</div>
+  </div>
+</footer>
+
+</body>
+</html>

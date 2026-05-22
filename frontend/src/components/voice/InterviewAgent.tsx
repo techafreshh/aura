@@ -1,246 +1,497 @@
 import {
   LiveKitRoom,
   RoomAudioRenderer,
-  ControlBar,
   useVoiceAssistant,
   useLocalParticipant,
-  useIsSpeaking,
   useTranscriptions,
   useConnectionState,
   useMediaDeviceSelect,
+  useTrackVolume,
+  useMultibandTrackVolume,
 } from "@livekit/components-react";
-import { AgentAudioVisualizerAura } from "@/components/agents-ui/agent-audio-visualizer-aura";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { getReport } from "@/api/client";
 import { useState, useEffect, useRef } from "react";
-import { CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Track, ConnectionState } from "livekit-client";
+import { Track, ConnectionState, type LocalAudioTrack } from "livekit-client";
+import "@/styles/aura-arena.css";
 
 interface InterviewAgentProps {
   token: string;
   sessionId: string;
+  candidateName?: string;
   onInterviewEnd: (report: any) => void;
 }
 
-function MicrophoneSelector() {
-  const { devices, activeDeviceId, setActiveMediaDevice } = useMediaDeviceSelect({ kind: 'audioinput', requestPermissions: true });
-  const filtered = devices.filter(d => d.deviceId !== '');
-  if (filtered.length < 2) return null;
+const ARC_COUNT = 28;
+const METER_BARS = 28;
+const DUST_COUNT = 14;
+
+/** Compact mic selector that fits in the topbar. */
+function MicSelector() {
+  const { devices, activeDeviceId, setActiveMediaDevice } = useMediaDeviceSelect({ kind: "audioinput", requestPermissions: true });
+  const [open, setOpen] = useState(false);
+  const filtered = devices.filter((d) => d.deviceId !== "");
+  const active = filtered.find((d) => d.deviceId === activeDeviceId);
+  const label = active?.label || "Mic";
+
+  if (filtered.length === 0) return null;
+
   return (
-    <Select value={activeDeviceId} onValueChange={(id) => setActiveMediaDevice(id)}>
-      <SelectTrigger className="w-[220px] text-xs">
-        <SelectValue placeholder="Select microphone" />
-      </SelectTrigger>
-      <SelectContent>
-        {filtered.map(device => (
-          <SelectItem key={device.deviceId} value={device.deviceId} className="text-xs">
-            {device.label || `Microphone (${device.deviceId.slice(0, 8)})`}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <div className="mic-select" onMouseLeave={() => setOpen(false)}>
+      <button
+        type="button"
+        className="mic-select-btn"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        title={label}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="9" y="3" width="6" height="12" rx="3" />
+          <path d="M5 11a7 7 0 0 0 14 0" />
+          <path d="M12 18v3" />
+        </svg>
+        <span className="mic-name">{label.length > 18 ? label.slice(0, 16) + "…" : label}</span>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+      {open && (
+        <ul role="listbox" className="mic-menu">
+          {filtered.map((d) => (
+            <li
+              key={d.deviceId}
+              role="option"
+              aria-selected={d.deviceId === activeDeviceId}
+              className={d.deviceId === activeDeviceId ? "selected" : ""}
+              onClick={() => {
+                setActiveMediaDevice(d.deviceId);
+                setOpen(false);
+              }}
+            >
+              {d.label || `Mic (${d.deviceId.slice(0, 8)})`}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
-function InterviewInner({ sessionId, onInterviewEnd }: { sessionId: string; onInterviewEnd: (report: any) => void }) {
-  const [isEnding, setIsEnding] = useState(false);
-  const [hasEnded, setHasEnded] = useState(false);
+function InterviewInner({ sessionId, candidateName = "Candidate", onInterviewEnd }: { sessionId: string; candidateName?: string; onInterviewEnd: (report: any) => void }) {
   const [hasConnected, setHasConnected] = useState(false);
-  
-  // Room Connection State
+  const [hasEnded, setHasEnded] = useState(false);
+  const [endedOpen, setEndedOpen] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [transcriptWidth, setTranscriptWidth] = useState(420);
+
   const roomState = useConnectionState();
-  
-  // AI Agent Data
-  const { state, audioTrack } = useVoiceAssistant();
-  
-  // Local User Data
+  const { state: agentState, audioTrack: agentAudioTrack } = useVoiceAssistant();
   const { localParticipant } = useLocalParticipant();
-  const isUserSpeaking = useIsSpeaking(localParticipant);
-  const userAudioTrack = localParticipant?.getTrackPublication(Track.Source.Microphone);
-  
-  // Derived state for the user's Aura visualizer
-  const userState = isUserSpeaking ? 'speaking' : 'listening';
-
-  // Try useTranscriptions instead of useChat
   const transcriptions = useTranscriptions();
-  
-  // Map transcriptions to a unified message format
-  // The agent publishes transcriptions for both itself and the user.
-  // We differentiate by checking if the transcribed track matches the user's mic track.
-  const localMicTrackSid = localParticipant?.getTrackPublication(Track.Source.Microphone)?.trackSid;
-  const rawMessages = transcriptions.map((t: any, idx: number) => {
-    const transcribedTrackId = t.streamInfo?.attributes?.['lk.transcribed_track_id'];
-    const isLocal = transcribedTrackId === localMicTrackSid;
-    return {
-      id: t.streamInfo?.id || `msg-${idx}`,
-      message: t.text || '',
-      isLocal,
-    };
-  }).filter(msg => msg.message);
 
-  // Merge consecutive messages from the same speaker
-  const transcriptMessages = rawMessages.reduce<typeof rawMessages>((acc, msg) => {
-    const last = acc[acc.length - 1];
-    if (last && last.isLocal === msg.isLocal) {
-      last.message += ' ' + msg.message;
-    } else {
-      acc.push({ ...msg });
+  // Local mic track reference (for volume hooks)
+  const micPub = localParticipant?.getTrackPublication(Track.Source.Microphone);
+  const micTrack = (micPub?.track as LocalAudioTrack | undefined) ?? undefined;
+
+  // Audio level hooks - real-time from LiveKit
+  const userBands = useMultibandTrackVolume(micTrack, { bands: METER_BARS, updateInterval: 50 });
+  const userArcs = useMultibandTrackVolume(micTrack, { bands: ARC_COUNT, updateInterval: 50 });
+  const agentVolume = useTrackVolume(agentAudioTrack?.publication?.track as any);
+
+  // Refs
+  const orbWrapRef = useRef<HTMLDivElement>(null);
+  const arcGroupRef = useRef<SVGGElement>(null);
+  const dustRef = useRef<HTMLDivElement>(null);
+  const meterRef = useRef<HTMLDivElement>(null);
+  const transcriptBodyRef = useRef<HTMLDivElement>(null);
+  const transcriptRef = useRef<HTMLElement>(null);
+  const arcsRef = useRef<SVGCircleElement[]>([]);
+  const barsRef = useRef<HTMLSpanElement[]>([]);
+
+  // Map agent state -> design data-state
+  const orbState: "idle" | "listening" | "thinking" | "speaking" =
+    agentState === "speaking" ? "speaking"
+    : agentState === "thinking" ? "thinking"
+    : agentState === "listening" ? "listening"
+    : "idle";
+
+  // Build voice arc segments once
+  useEffect(() => {
+    const g = arcGroupRef.current;
+    if (!g) return;
+    const cx = 100, cy = 100, rOuter = 96;
+    const els: SVGCircleElement[] = [];
+    for (let i = 0; i < ARC_COUNT; i++) {
+      const seg = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      seg.setAttribute("cx", String(cx));
+      seg.setAttribute("cy", String(cy));
+      seg.setAttribute("r", String(rOuter));
+      seg.setAttribute("stroke-dasharray", "2 600");
+      seg.setAttribute("stroke-dashoffset", String(-(i / ARC_COUNT) * 2 * Math.PI * rOuter));
+      seg.setAttribute("stroke-linecap", "round");
+      seg.setAttribute("stroke-width", "2");
+      seg.setAttribute("opacity", "0.6");
+      g.appendChild(seg);
+      els.push(seg);
     }
+    arcsRef.current = els;
+    return () => { els.forEach((e) => e.remove()); arcsRef.current = []; };
+  }, []);
+
+  // Build dust particles once
+  useEffect(() => {
+    const dust = dustRef.current;
+    if (!dust) return;
+    const created: HTMLSpanElement[] = [];
+    for (let i = 0; i < DUST_COUNT; i++) {
+      const s = document.createElement("span");
+      const ang = Math.random() * Math.PI * 2;
+      const r = 30 + Math.random() * 20;
+      s.style.left = `${50 + Math.cos(ang) * r}%`;
+      s.style.top = `${50 + Math.sin(ang) * r}%`;
+      s.style.animationDelay = `${-Math.random() * 9}s`;
+      s.style.animationDuration = `${7 + Math.random() * 6}s`;
+      s.style.opacity = (0.4 + Math.random() * 0.6).toFixed(2);
+      s.style.setProperty("--dx", `${(Math.random() * 14 - 7).toFixed(1)}px`);
+      s.style.setProperty("--dy", `${(Math.random() * 14 - 7).toFixed(1)}px`);
+      dust.appendChild(s);
+      created.push(s);
+    }
+    return () => { created.forEach((e) => e.remove()); };
+  }, []);
+
+  // Build meter bars once
+  useEffect(() => {
+    const meter = meterRef.current;
+    if (!meter) return;
+    const created: HTMLSpanElement[] = [];
+    for (let i = 0; i < METER_BARS; i++) {
+      const b = document.createElement("span");
+      b.className = "bar";
+      meter.appendChild(b);
+      created.push(b);
+    }
+    barsRef.current = created;
+    return () => { created.forEach((e) => e.remove()); barsRef.current = []; };
+  }, []);
+
+  // Drive meter bars from real user mic frequency bands
+  useEffect(() => {
+    const bars = barsRef.current;
+    if (!bars.length) return;
+    for (let i = 0; i < bars.length; i++) {
+      const v = muted ? 0 : (userBands[i] ?? 0);
+      const h = Math.max(4, Math.min(28, 4 + v * 60));
+      bars[i].style.height = `${h.toFixed(1)}px`;
+      bars[i].style.opacity = muted ? "0.25" : `${(0.4 + v * 0.7).toFixed(2)}`;
+    }
+  }, [userBands, muted]);
+
+  // Drive voice arcs from real user mic frequency bands (visible only during listening)
+  useEffect(() => {
+    const arcs = arcsRef.current;
+    if (!arcs.length) return;
+    const visible = orbState === "listening" && !muted;
+    for (let i = 0; i < arcs.length; i++) {
+      if (!visible) {
+        arcs[i].setAttribute("opacity", "0");
+        continue;
+      }
+      const v = userArcs[i] ?? 0;
+      arcs[i].setAttribute("stroke-width", (1.4 + v * 6).toFixed(2));
+      arcs[i].setAttribute("opacity", (0.3 + v * 0.7).toFixed(2));
+    }
+  }, [userArcs, orbState, muted]);
+
+  // Drive orb pulse from real agent audio volume
+  useEffect(() => {
+    const orb = orbWrapRef.current;
+    if (!orb) return;
+    // Smooth value to avoid jitter
+    const v = Math.max(0, Math.min(1, agentVolume));
+    orb.style.setProperty("--agent-vol", v.toFixed(3));
+  }, [agentVolume]);
+
+  // Build transcript messages from real LiveKit data
+  const localMicTrackSid = micPub?.trackSid;
+  const rawMessages = transcriptions.map((t: any, idx: number) => {
+    const tid = t.streamInfo?.attributes?.["lk.transcribed_track_id"];
+    return { id: t.streamInfo?.id || `msg-${idx}`, message: t.text || "", isLocal: tid === localMicTrackSid };
+  }).filter((m) => m.message);
+  const messages = rawMessages.reduce<typeof rawMessages>((acc, msg) => {
+    const last = acc[acc.length - 1];
+    if (last && last.isLocal === msg.isLocal) last.message += " " + msg.message;
+    else acc.push({ ...msg });
     return acc;
   }, []);
 
-  // Auto-scroll transcript
-  const transcriptEndRef = useRef<HTMLDivElement>(null);
+  // Auto-scroll transcript on new message
   useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [transcriptMessages.length]);
+    const body = transcriptBodyRef.current;
+    if (body) body.scrollTop = body.scrollHeight;
+  }, [messages.length]);
 
-  // Track if we ever successfully connected
+  // Track connection
   useEffect(() => {
-    if (roomState === ConnectionState.Connected) {
-      setHasConnected(true);
-    }
+    if (roomState === ConnectionState.Connected) setHasConnected(true);
   }, [roomState]);
 
-  // Handle Disconnect ONLY if we were previously connected
+  // Timer
+  useEffect(() => {
+    if (!hasConnected) return;
+    const i = setInterval(() => setElapsed((e) => e + 1), 1000);
+    return () => clearInterval(i);
+  }, [hasConnected]);
+  const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
+  const ss = String(elapsed % 60).padStart(2, "0");
+
+  // Mute toggle
+  const toggleMute = async () => {
+    if (!micTrack) return;
+    if (muted) await micTrack.unmute();
+    else await micTrack.mute();
+    setMuted(!muted);
+  };
+
+  // End interview
+  const endInterview = async () => {
+    setEndedOpen(true);
+    setHasEnded(true);
+    try { await localParticipant?.setMicrophoneEnabled(false); } catch {}
+  };
+
+  // After end, fetch report
   useEffect(() => {
     if (hasConnected && roomState === ConnectionState.Disconnected && !hasEnded) {
-      setHasEnded(true); // Ensure this effect only runs once
-      setIsEnding(true);
-      
-      const fetchReportWithRetry = async () => {
-        let retries = 10;
-        while (retries > 0) {
-          try {
-            await new Promise(resolve => setTimeout(resolve, 3000));
-            const report = await getReport(sessionId);
-            onInterviewEnd(report);
-            return;
-          } catch (error) {
-            console.error(`Failed to fetch report. Retries left: ${retries - 1}`);
-            retries--;
-          }
-        }
-        
-        // If we exhausted retries
-        setIsEnding(false);
-        alert("The interview ended before a final report could be generated.");
-      };
-      
-      fetchReportWithRetry();
+      setHasEnded(true);
+      setEndedOpen(true);
     }
-  }, [roomState, hasConnected, sessionId, onInterviewEnd, hasEnded]);
+    if (hasEnded && endedOpen) {
+      let cancelled = false;
+      (async () => {
+        for (let i = 0; i < 12; i++) {
+          if (cancelled) return;
+          try {
+            await new Promise((r) => setTimeout(r, 3000));
+            const report = await getReport(sessionId);
+            if (!cancelled) onInterviewEnd(report);
+            return;
+          } catch {}
+        }
+      })();
+      return () => { cancelled = true; };
+    }
+  }, [roomState, hasConnected, hasEnded, endedOpen, sessionId, onInterviewEnd]);
+
+  // Disconnect after end
+  useEffect(() => {
+    if (hasEnded && roomState === ConnectionState.Connected) {
+      const t = setTimeout(() => {
+        try { (localParticipant as any)?.disconnect?.(); } catch {}
+      }, 200);
+      return () => clearTimeout(t);
+    }
+  }, [hasEnded, roomState, localParticipant]);
+
+  // Resizable transcript handle
+  const dragRef = useRef<{ startX: number; startW: number } | null>(null);
+  const onDragStart = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    dragRef.current = { startX: e.clientX, startW: transcriptWidth };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const onDragMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current) return;
+    const dx = dragRef.current.startX - e.clientX; // dragging left = wider
+    const next = Math.max(280, Math.min(720, dragRef.current.startW + dx));
+    setTranscriptWidth(next);
+  };
+  const onDragEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    dragRef.current = null;
+    try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
+  };
+
+  const stateLabel = orbState === "idle" ? "Idle" : orbState === "listening" ? "Listening" : orbState === "thinking" ? "Processing" : "Speaking";
+  const initials = candidateName.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase() || "C";
+  const sidShort = sessionId.slice(0, 4) + "-" + sessionId.slice(-4);
 
   return (
-    <div className="flex flex-col md:flex-row p-4 gap-4 h-full bg-background text-foreground">
-      
-      {/* Left Side: Visualizers and Controls */}
-      <div className="flex-1 flex flex-col items-center justify-center space-y-12 bg-card rounded-lg border shadow-sm p-8 relative">
-        <h2 className="text-2xl font-bold absolute top-8 text-center w-full text-primary">
-          {state === 'connecting' || state === 'initializing' ? 'Connecting to AI...' : 
-           state === 'listening' ? 'AI is Listening...' : 
-           state === 'thinking' ? 'AI is Thinking...' :
-           state === 'speaking' ? 'AI is Speaking...' : 
-           'Interview Room'}
-        </h2>
+    <div className="aura-arena-page">
+      <div className="ambient" aria-hidden="true"></div>
+      <div className="grid-mesh" aria-hidden="true"></div>
 
-        {/* Dual High-Fidelity Aura Visualizers */}
-        <div className="flex flex-col md:flex-row items-center justify-center gap-12 md:gap-24 w-full mt-12">
-          
-          {/* User Visualizer */}
-          <div className="flex flex-col items-center">
-            <div className="w-32 h-32 flex items-center justify-center relative scale-125 z-0 pointer-events-none mb-6">
-               <AgentAudioVisualizerAura state={userState as any} audioTrack={userAudioTrack as any} />
-            </div>
-            <span className="text-sm font-bold uppercase tracking-wider text-muted-foreground">You</span>
-          </div>
-
-          {/* AI Visualizer */}
-          <div className="flex flex-col items-center">
-            <div className="w-32 h-32 flex items-center justify-center relative scale-125 z-0 pointer-events-none mb-6">
-               <AgentAudioVisualizerAura state={state} audioTrack={audioTrack} />
-            </div>
-            <span className="text-sm font-bold uppercase tracking-wider text-primary">AI Interviewer</span>
-          </div>
-
-        </div>
-        
-        {/* Standard Controls */}
-        <div className="mt-12 z-50 flex flex-col items-center gap-3">
-          <MicrophoneSelector />
-          <div className="bg-background p-2 rounded-full shadow-lg border">
-            <ControlBar controls={{ microphone: true, camera: false, screenShare: false, leave: true }} />
+      {/* Top status bar */}
+      <header className="topbar" role="banner">
+        <div className="top-left">
+          <a className="brand" href="/" aria-label="Aura — back to home">
+            <span className="mark" aria-hidden="true"></span>
+            <span className="text">Aura</span>
+          </a>
+          <div className="candidate-chip" aria-label="Candidate">
+            <span className="avatar" aria-hidden="true">{initials}</span>
+            <span className="name">{candidateName}</span>
           </div>
         </div>
 
-        {isEnding && (
-          <div className="absolute inset-0 bg-background/80 flex items-center justify-center backdrop-blur-sm rounded-lg z-50">
-            <div className="text-center space-y-4">
-              <div className="text-2xl font-bold animate-pulse text-primary">Generating Report...</div>
-              <p className="text-muted-foreground">The interview has ended. Please wait while we process the results.</p>
-            </div>
+        <div className="top-center">
+          <div className="session-status" aria-live="polite" aria-atomic="true">
+            <span className="rec-dot" aria-hidden="true"></span>
+            <span>Session · Active</span>
           </div>
-        )}
+        </div>
+
+        <div className="top-right">
+          <MicSelector />
+          <div className="timer" aria-label="Session elapsed time">{mm}:{ss}</div>
+          <div className="session-id" aria-label="Session identifier">
+            <strong>SID</strong> · {sidShort}
+          </div>
+        </div>
+      </header>
+
+      {/* Stage */}
+      <main className="stage" style={{ gridTemplateColumns: `1fr ${transcriptWidth}px` }}>
+        <section className="orb-zone" aria-label="Aura agent presence">
+          <div
+            className="orb-wrap"
+            ref={orbWrapRef}
+            data-state={orbState}
+            data-muted={muted ? "true" : "false"}
+          >
+            <div className="orb-glow" aria-hidden="true"></div>
+            <div className="orb-ring-set" aria-hidden="true">
+              <span className="orb-ring r1"></span>
+              <span className="orb-ring r2"></span>
+              <span className="orb-ring r3"></span>
+              <span className="orb-ring r4"></span>
+            </div>
+
+            <svg className="voice-arcs" viewBox="0 0 200 200" aria-hidden="true">
+              <defs>
+                <linearGradient id="arcGrad" x1="0" x2="1" y1="0" y2="1">
+                  <stop offset="0%" stopColor="#a5b4fc" stopOpacity="0.9" />
+                  <stop offset="100%" stopColor="#6366f1" stopOpacity="0.4" />
+                </linearGradient>
+              </defs>
+              <g ref={arcGroupRef} stroke="url(#arcGrad)"></g>
+            </svg>
+
+            <div className="pulse-rings" aria-hidden="true">
+              <span></span><span></span><span></span><span></span>
+            </div>
+
+            <div className="orb-dust" ref={dustRef} aria-hidden="true"></div>
+            <div className="orb-core" aria-hidden="true"></div>
+          </div>
+
+          <div className="state-plate">
+            <span className="pip" aria-hidden="true"></span>
+            <span>{stateLabel}</span>
+          </div>
+        </section>
+
+        {/* Transcript with resize handle */}
+        <aside className="transcript" ref={transcriptRef} aria-label="Live transcript" style={{ width: "auto" }}>
+          <div
+            className="transcript-resize"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize transcript"
+            onPointerDown={onDragStart}
+            onPointerMove={onDragMove}
+            onPointerUp={onDragEnd}
+            onPointerCancel={onDragEnd}
+          />
+          <div className="transcript-header">
+            <div className="transcript-title">
+              <span className="live-pip" aria-hidden="true"></span>
+              <span>Live transcript</span>
+            </div>
+            <div className="transcript-meta">EN · auto</div>
+          </div>
+          <div className="transcript-body" ref={transcriptBodyRef} aria-live="polite">
+            {messages.length === 0 && (
+              <div style={{ color: "var(--muted-2)", fontSize: 13, textAlign: "center", marginTop: 24, fontStyle: "italic" }}>
+                Waiting for conversation…
+              </div>
+            )}
+            {messages.map((m, i) => (
+              <div key={i} className={`msg ${m.isLocal ? "user" : "aura"}`}>
+                <div className="who" aria-hidden="true">{m.isLocal ? "Y" : "A"}</div>
+                <div className="body">
+                  <div className="head">
+                    <span className="name">{m.isLocal ? "You" : "Aura"}</span>
+                  </div>
+                  <div className="text">{m.message}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </aside>
+      </main>
+
+      {/* Bottom action dock */}
+      <div className="dock-wrap">
+        <div className="dock" role="toolbar" aria-label="Interview controls">
+          <button
+            className={`dock-btn ${muted ? "muted" : ""}`}
+            onClick={toggleMute}
+            aria-pressed={muted}
+            aria-label={muted ? "Unmute microphone" : "Mute microphone"}
+            type="button"
+          >
+            <svg className="ico ico-mic-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="9" y="3" width="6" height="12" rx="3" />
+              <path d="M5 11a7 7 0 0 0 14 0" />
+              <path d="M12 18v3" />
+            </svg>
+            <svg className="ico ico-mic-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 3l18 18" />
+              <path d="M9 9v3a3 3 0 0 0 4.83 2.36" />
+              <path d="M15 12V6a3 3 0 0 0-5.94-.6" />
+              <path d="M5 11a7 7 0 0 0 11.28 5.6" />
+              <path d="M19 11a7 7 0 0 1-.4 2.34" />
+              <path d="M12 18v3" />
+            </svg>
+            <span className="label">{muted ? "Unmute" : "Mute"}</span>
+          </button>
+
+          <div className="meter" ref={meterRef} data-muted={muted ? "true" : "false"} aria-hidden="true"></div>
+
+          <button className="dock-btn danger" onClick={endInterview} aria-label="End interview" type="button">
+            <svg className="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3.5 14.5a3 3 0 0 1 0-5L4 9a17 17 0 0 1 16 0l.5.5a3 3 0 0 1 0 5l-2 .8a2 2 0 0 1-2.4-.7l-1-1.4a2 2 0 0 0-1.6-.9h-2a2 2 0 0 0-1.6.9l-1 1.4a2 2 0 0 1-2.4.7Z" />
+            </svg>
+            <span className="label">End interview</span>
+          </button>
+        </div>
       </div>
 
-      {/* Right Side: Transcript */}
-      <div className="w-full md:w-96 flex flex-col bg-card rounded-lg border shadow-sm h-full">
-        <CardHeader className="border-b bg-muted/30 pb-4">
-          <CardTitle className="text-sm font-medium">Live Transcript</CardTitle>
-        </CardHeader>
-        <CardContent className="flex-1 overflow-y-auto p-4 flex flex-col">
-           {/* Manually render messages to avoid context crashes */}
-           <div className="space-y-4 flex flex-col flex-1 justify-end">
-             {transcriptMessages.length === 0 && (
-               <p className="text-xs text-muted-foreground text-center italic mt-auto">Waiting for conversation to start...</p>
-             )}
-             {transcriptMessages.map((msg, i) => (
-               <div key={i} className={`flex flex-col ${msg.isLocal ? 'items-end' : 'items-start'}`}>
-                 <span className="text-[10px] font-bold uppercase text-muted-foreground mb-1">
-                   {msg.isLocal ? 'You' : 'AI Interviewer'}
-                 </span>
-                 <div className={`rounded-2xl px-4 py-2 text-sm max-w-[90%] shadow-sm ${
-                   msg.isLocal ? 'bg-primary text-primary-foreground' : 'bg-muted border'
-                 }`}>
-                   {msg.message}
-                 </div>
-               </div>
-             ))}
-             <div ref={transcriptEndRef} />
-           </div>
-        </CardContent>
+      {/* Ended overlay */}
+      <div className="ended-overlay" data-open={endedOpen ? "true" : "false"} role="status" aria-live="polite">
+        <div>
+          <div className="check" aria-hidden="true">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <h2>Interview complete</h2>
+          <p>Generating the candidate report — this typically takes a few seconds.</p>
+        </div>
       </div>
-      
-      {/* CRUCIAL: This plays the audio from the room */}
+
       <RoomAudioRenderer />
     </div>
   );
 }
 
-export function InterviewAgent({ token, sessionId, onInterviewEnd }: InterviewAgentProps) {
+export function InterviewAgent({ token, sessionId, candidateName, onInterviewEnd }: InterviewAgentProps) {
   const serverUrl = import.meta.env.VITE_LIVEKIT_URL;
-
-  if (!serverUrl) {
-    return <div className="p-8 text-center text-destructive">VITE_LIVEKIT_URL is missing in .env</div>;
-  }
-
+  if (!serverUrl) return <div style={{ padding: 32, textAlign: "center", color: "#ef4444" }}>VITE_LIVEKIT_URL is missing in .env</div>;
   return (
-    <LiveKitRoom
-      serverUrl={serverUrl}
-      token={token}
-      connect={true}
-      audio={true}
-      video={false}
-      onError={(err) => console.error("LiveKit Room Error:", err)}
-      className="h-full w-full"
-    >
-      <InterviewInner sessionId={sessionId} onInterviewEnd={onInterviewEnd} />
+    <LiveKitRoom serverUrl={serverUrl} token={token} connect={true} audio={true} video={false} onError={(err) => console.error("LiveKit Error:", err)}>
+      <InterviewInner sessionId={sessionId} candidateName={candidateName} onInterviewEnd={onInterviewEnd} />
     </LiveKitRoom>
   );
 }

@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Aura — Rubric Builder</title>
+<meta name="description" content="Build custom interview rubrics from job descriptions and resumes using Aura's intelligence." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" />
+
+<style>
+  /* ---------- Tokens ---------- */
+  :root {
+    --bg: #09090b; --bg-2: #0c0c0f;
+    --surface: rgba(255,255,255,0.03); --surface-2: rgba(255,255,255,0.05);
+    --border: #27272a; --border-soft: rgba(255,255,255,0.06);
+    --fg: #fafafa; --fg-2: #e4e4e7; --muted: #a1a1aa; --muted-2: #71717a;
+    --accent: #6366f1; --accent-2: #818cf8; --accent-deep: #4338ca; --success: #10b981;
+    --font-display: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-body:    'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    --t-display: clamp(32px, 4.4vw, 56px);
+    --t-h2: 24px; --t-h3: 18px; --t-body: 15px; --t-small: 13px; --t-mono: 12px;
+    --gutter: clamp(20px, 4vw, 56px); --radius-sm: 10px; --radius: 16px; --radius-lg: 24px;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg-2); font-family: var(--font-body); -webkit-font-smoothing: antialiased; }
+  
+  /* ---------- Background & Mesh ---------- */
+  .page-ambient { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+  .page-ambient::before { content: ''; position: absolute; top: -10%; right: -5%; width: 600px; height: 600px; background: radial-gradient(closest-side, rgba(99,102,241,0.12), transparent 70%); filter: blur(40px); }
+  .grid-mesh { position: fixed; inset: 0; pointer-events: none; z-index: 0; background-image: linear-gradient(to right, rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px); background-size: 64px 64px; mask-image: radial-gradient(ellipse at 50% 0%, black 20%, transparent 80%); }
+
+  .container { width: 100%; max-width: 1000px; margin: 0 auto; padding: 100px var(--gutter) 60px; position: relative; z-index: 1; }
+
+  /* ---------- Nav ---------- */
+  .nav-pill { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 100; height: 48px; padding: 0 12px 0 20px; display: flex; align-items: center; gap: 24px; background: rgba(12,12,15,0.7); backdrop-filter: blur(12px) saturate(160%); border: 1px solid var(--border); border-radius: 24px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+  .nav-brand { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--fg); font-size: 14px; }
+  .nav-brand .mark { width: 16px; height: 16px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff, transparent 60%), var(--accent); }
+  .nav-links { display: flex; gap: 18px; font-size: 13px; color: var(--muted); }
+  .nav-links a:hover { color: var(--fg); }
+  .nav-cta { margin-left: auto; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 14px; border-radius: 8px; font-size: 13px; font-weight: 500; transition: all .2s; }
+  .btn-primary { background: var(--accent); color: white; border: 1px solid rgba(255,255,255,0.1); }
+  .btn-primary:hover { background: var(--accent-2); transform: translateY(-1px); }
+
+  /* ---------- Content ---------- */
+  .header-content { text-align: center; margin-bottom: 48px; }
+  .header-content h1 { font-size: var(--t-display); font-weight: 600; color: var(--fg); letter-spacing: -0.03em; margin: 0 0 12px; }
+  .header-content p { color: var(--muted); font-size: 16px; max-width: 500px; margin: 0 auto; }
+
+  /* ---------- Upload Phase ---------- */
+  #phase-upload { animation: fadeIn 0.6s ease-out; }
+  .dropzone { position: relative; border: 1px dashed var(--border); border-radius: var(--radius-lg); padding: 80px 40px; text-align: center; background: rgba(255,255,255,0.01); transition: all .3s; cursor: pointer; }
+  .dropzone:hover { border-color: var(--accent); background: rgba(99,102,241,0.03); }
+  .drop-icon { width: 48px; height: 48px; margin: 0 auto 20px; color: var(--muted); opacity: 0.5; }
+  .drop-title { font-size: 18px; font-weight: 500; color: var(--fg-2); margin-bottom: 8px; }
+  .drop-hint { color: var(--muted-2); font-size: 14px; }
+  .or-divider { display: flex; align-items: center; gap: 16px; margin: 32px 0; color: var(--muted-2); font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; }
+  .or-divider::before, .or-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+  .paste-area { width: 100%; min-height: 120px; background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; color: var(--fg-2); font-family: var(--font-body); resize: none; outline: none; transition: border-color .2s; }
+  .paste-area:focus { border-color: var(--muted); }
+
+  /* ---------- Processing Phase ---------- */
+  #phase-processing { display: none; flex-direction: column; align-items: center; padding: 60px 0; animation: fadeIn 0.4s ease-out; }
+  .orb-container { width: 180px; height: 180px; position: relative; margin-bottom: 40px; }
+  .orb { position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(circle at 35% 30%, rgba(255,255,255,0.4), transparent 50%), var(--accent); box-shadow: 0 0 40px rgba(99,102,241,0.4); animation: orb-think 3s infinite linear; }
+  @keyframes orb-think { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .process-log { width: 100%; max-width: 320px; font-family: var(--font-mono); font-size: 12px; color: var(--muted); line-height: 2; height: 80px; overflow: hidden; position: relative; }
+  .process-log::after { content: ''; position: absolute; inset: 0; background: linear-gradient(transparent, var(--bg)); pointer-events: none; }
+  .log-line { opacity: 0; transform: translateY(10px); animation: logSlide 0.4s forwards; }
+  @keyframes logSlide { to { opacity: 1; transform: translateY(0); } }
+
+  /* ---------- Editor Phase ---------- */
+  #phase-editor { display: none; animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
+  .editor-grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 40px; }
+  @media (min-width: 768px) { .editor-grid { grid-template-columns: 1fr; } }
+  
+  .rubric-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; position: relative; transition: border-color .2s; }
+  .rubric-card:hover { border-color: rgba(255,255,255,0.1); }
+  .rubric-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .rubric-title { font-size: 16px; font-weight: 600; color: var(--fg); }
+  .rubric-weight { display: flex; align-items: center; gap: 12px; width: 140px; }
+  .weight-label { font-family: var(--font-mono); font-size: 11px; color: var(--muted); min-width: 3ch; }
+  .weight-bar { flex: 1; height: 4px; background: var(--border); border-radius: 2px; position: relative; }
+  .weight-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: var(--accent); }
+  .rubric-desc { font-size: 14px; color: var(--muted); line-height: 1.5; margin-bottom: 16px; }
+  .focus-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tag { padding: 4px 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; color: var(--fg-2); }
+
+  .editor-actions { position: sticky; bottom: 24px; padding: 16px; background: rgba(12,12,15,0.8); backdrop-filter: blur(16px); border: 1px solid var(--border); border-radius: 18px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 12px 48px rgba(0,0,0,0.5); }
+  .total-weight { display: flex; align-items: center; gap: 12px; font-family: var(--font-mono); font-size: 12px; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); box-shadow: 0 0 12px var(--success); }
+
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ---------- The Orb Presence ---------- */
+  .orb-presence { position: fixed; top: 12px; right: 24px; z-index: 101; display: flex; align-items: center; gap: 12px; }
+  .mini-orb { width: 32px; height: 32px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, rgba(255,255,255,0.5), transparent 60%), var(--accent); box-shadow: 0 0 15px rgba(99,102,241,0.5); position: relative; }
+  .mini-orb::after { content: ''; position: absolute; inset: -4px; border-radius: 50%; border: 1px solid rgba(99,102,241,0.2); animation: mini-pulse 2s infinite; }
+  @keyframes mini-pulse { 0% { transform: scale(1); opacity: 1; } 100% { transform: scale(1.4); opacity: 0; } }
+</style>
+</head>
+<body>
+
+  <div class="page-ambient"></div>
+  <div class="grid-mesh"></div>
+
+  <nav class="nav-pill">
+    <div class="nav-brand">
+      <div class="mark"></div>
+      Aura
+    </div>
+    <div class="nav-links">
+      <a href="index.html">Product</a>
+      <a href="dashboard.html">Dashboard</a>
+      <a href="rubric-builder.html" style="color: var(--fg);">Rubrics</a>
+      <a href="sample-report.html">Intelligence</a>
+    </div>
+    <div class="nav-cta">
+      <a href="interview-arena.html" class="btn btn-primary">Start Interview</a>
+    </div>
+  </nav>
+
+  <div class="orb-presence">
+    <div class="mini-orb"></div>
+  </div>
+
+  <main class="container">
+    <div class="header-content">
+      <h1>Resume Intelligence</h1>
+      <p>Upload a job description or candidate resume. Aura extracts key competencies and builds a weighted rubric in seconds.</p>
+    </div>
+
+    <!-- Phase 1: Upload -->
+    <section id="phase-upload">
+      <div class="dropzone" onclick="startProcessing()">
+        <svg class="drop-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+        </svg>
+        <div class="drop-title">Drop JD or Resume here</div>
+        <div class="drop-hint">Supports PDF, DOCX, or Plain Text (Max 10MB)</div>
+      </div>
+
+      <div class="or-divider">Or paste text</div>
+
+      <textarea class="paste-area" placeholder="Paste the job description or candidate background here..."></textarea>
+      
+      <div style="margin-top: 32px; text-align: center;">
+        <button class="btn btn-primary" style="height: 44px; padding: 0 32px;" onclick="startProcessing()">Analyze with Aura</button>
+      </div>
+    </section>
+
+    <!-- Phase 2: Processing -->
+    <section id="phase-processing">
+      <div class="orb-container">
+        <div class="orb"></div>
+      </div>
+      <div class="process-log" id="log">
+        <!-- Lines added by JS -->
+      </div>
+    </section>
+
+    <!-- Phase 3: Editor -->
+    <section id="phase-editor">
+      <div class="editor-grid" id="rubric-list">
+        <!-- Cards added by JS -->
+      </div>
+
+      <div class="editor-actions">
+        <div class="total-weight">
+          <div class="status-dot"></div>
+          Total Weight: 1.00 / 1.00
+        </div>
+        <div style="display: flex; gap: 12px;">
+          <button class="btn btn-ghost" style="border: 1px solid var(--border);">Add Dimension</button>
+          <button class="btn btn-primary" onclick="window.location.href='interview-arena.html'">Save & Launch Interview</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const logs = [
+      "Reading uploaded file...",
+      "Detected role: Senior Backend Engineer",
+      "Scanning competencies...",
+      "Extracting technical requirements (Go, Kafka, Redis)",
+      "Mapping behavioral signals...",
+      "Identifying leadership markers...",
+      "Calibrating weights based on role seniority...",
+      "Rubric generated successfully."
+    ];
+
+    const rubric = [
+      { title: "Distributed Systems Architecture", weight: 0.30, desc: "Experience with high-throughput messaging, partition strategies, and eventual consistency models.", tags: ["Kafka", "Event Sourcing", "Redis"] },
+      { title: "Technical Problem Solving", weight: 0.22, desc: "Ability to diagnose hot partitions, bottleneck detection, and performance profiling under load.", tags: ["Profiling", "Hot Spots", "Latency"] },
+      { title: "Operational Excellence", weight: 0.18, desc: "Observability mindset, SLO/SLA management, and incident response experience.", tags: ["Datadog", "SLOs", "Post-mortems"] },
+      { title: "System Design & Trade-offs", weight: 0.18, desc: "Critical thinking around CAP theorem, consistency vs. availability, and database selection.", tags: ["Consistency", "Availability", "Trade-offs"] },
+      { title: "Communication & Leadership", weight: 0.12, desc: "Clarity of technical explanations and ability to mentor junior engineers.", tags: ["Mentorship", "Clarity"] }
+    ];
+
+    function startProcessing() {
+      document.getElementById('phase-upload').style.display = 'none';
+      document.getElementById('phase-processing').style.display = 'flex';
+
+      const logEl = document.getElementById('log');
+      let i = 0;
+      const interval = setInterval(() => {
+        if (i < logs.length) {
+          const line = document.createElement('div');
+          line.className = 'log-line';
+          line.textContent = `> ${logs[i]}`;
+          logEl.prepend(line);
+          i++;
+        } else {
+          clearInterval(interval);
+          setTimeout(showEditor, 1000);
+        }
+      }, 600);
+    }
+
+    function showEditor() {
+      document.getElementById('phase-processing').style.display = 'none';
+      document.getElementById('phase-editor').style.display = 'block';
+
+      const list = document.getElementById('rubric-list');
+      rubric.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'rubric-card';
+        card.innerHTML = `
+          <div class="rubric-header">
+            <div class="rubric-title">${item.title}</div>
+            <div class="rubric-weight">
+              <div class="weight-label">${item.weight.toFixed(2)}</div>
+              <div class="weight-bar"><div class="weight-fill" style="width: ${item.weight * 100}%"></div></div>
+            </div>
+          </div>
+          <div class="rubric-desc">${item.desc}</div>
+          <div class="focus-tags">
+            ${item.tags.map(t => `<span class="tag">${t}</span>`).join('')}
+          </div>
+        `;
+        list.appendChild(card);
+      });
+    }
+  </script>
+
+</body>
+</html>

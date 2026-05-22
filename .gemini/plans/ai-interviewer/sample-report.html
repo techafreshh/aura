@@ -1,0 +1,1338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Aura — Interview Report · Dahlia Chen</title>
+<meta name="description" content="Sample Aura interview report: weighted rubric, behavioral signals, transcript moments, calibration." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" />
+
+<style>
+  /* ============================================================
+     TOKENS  (locked to landing page — do not drift)
+  ============================================================ */
+  :root {
+    --bg: #09090b;
+    --bg-2: #0c0c0f;
+    --surface: rgba(255,255,255,0.03);
+    --surface-2: rgba(255,255,255,0.05);
+    --surface-3: rgba(255,255,255,0.07);
+    --border: #27272a;
+    --border-soft: rgba(255,255,255,0.06);
+    --border-strong: rgba(255,255,255,0.10);
+
+    --fg: #fafafa;
+    --fg-2: #e4e4e7;
+    --muted: #a1a1aa;
+    --muted-2: #71717a;
+    --muted-3: #52525b;
+
+    --accent: #6366f1;
+    --accent-2: #818cf8;
+    --accent-3: #a5b4fc;
+    --accent-deep: #4338ca;
+    --success: #10b981;
+    --warn: #f59e0b;
+    --danger: #ef4444;
+
+    --font-display: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-body:    'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+    --gutter: clamp(20px, 4vw, 56px);
+    --radius-sm: 10px;
+    --radius: 16px;
+    --radius-lg: 24px;
+  }
+
+  /* ============================================================
+     RESET
+  ============================================================ */
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.55;
+    color: var(--fg-2);
+    background: var(--bg);
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-variant-numeric: tabular-nums;
+  }
+  img, svg { display: block; max-width: 100%; }
+  a { color: inherit; text-decoration: none; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  ::selection { background: color-mix(in oklab, var(--accent) 50%, transparent); color: white; }
+
+  /* ============================================================
+     AMBIENT (more restrained than landing — this is a doc surface)
+  ============================================================ */
+  .page-ambient { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+  .page-ambient::before {
+    content: ''; position: absolute;
+    top: -25%; right: -15%;
+    width: 760px; height: 760px;
+    background: radial-gradient(closest-side, rgba(99,102,241,0.14), transparent 70%);
+    filter: blur(20px);
+  }
+  .page-ambient::after {
+    content: ''; position: absolute;
+    bottom: -30%; left: -15%;
+    width: 620px; height: 620px;
+    background: radial-gradient(closest-side, rgba(67,56,202,0.12), transparent 70%);
+    filter: blur(20px);
+  }
+  .grid-mesh {
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image:
+      linear-gradient(to right, rgba(255,255,255,0.022) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255,255,255,0.022) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: radial-gradient(ellipse 90% 80% at 50% 20%, black 30%, transparent 80%);
+    -webkit-mask-image: radial-gradient(ellipse 90% 80% at 50% 20%, black 30%, transparent 80%);
+  }
+
+  /* ============================================================
+     LAYOUT
+  ============================================================ */
+  .container { width: 100%; max-width: 1240px; margin: 0 auto; padding-inline: var(--gutter); position: relative; z-index: 1; }
+
+  /* ============================================================
+     NAV
+  ============================================================ */
+  .nav {
+    position: sticky;
+    top: 12px;
+    z-index: 50;
+    max-width: 1000px;
+    width: calc(100% - 32px);
+    margin: 12px auto 0;
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    background: color-mix(in oklab, var(--bg) 85%, transparent);
+    border: 1px solid var(--border-soft);
+    border-radius: 20px;
+    box-shadow: 
+      0 10px 30px -10px rgba(0, 0, 0, 0.5),
+      0 0 0 1px rgba(255, 255, 255, 0.03);
+    transition: background 0.3s ease, border-color 0.3s ease;
+  }
+  .nav-row { display: flex; align-items: center; justify-content: space-between; height: 52px; gap: 16px; }
+  .brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; color: var(--fg); letter-spacing: -0.01em; }
+  .brand .mark {
+    width: 22px; height: 22px; border-radius: 50%;
+    background:
+      radial-gradient(circle at 35% 30%, rgba(255,255,255,0.65), transparent 50%),
+      radial-gradient(circle at 50% 50%, var(--accent-2), var(--accent) 45%, var(--accent-deep) 75%, #0a0a12 100%);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 0 16px rgba(99,102,241,0.55);
+  }
+  .breadcrumb {
+    display: none;
+    align-items: center; gap: 10px;
+    font-family: var(--font-mono); font-size: 12px; color: var(--muted-2);
+  }
+  .breadcrumb a { color: var(--muted); transition: color .15s; }
+  .breadcrumb a:hover { color: var(--fg-2); }
+  .breadcrumb .sep { color: var(--muted-3); }
+  .breadcrumb .current { color: var(--fg); }
+  @media (min-width: 900px) { .breadcrumb { display: inline-flex; } }
+  .nav-actions { display: flex; align-items: center; gap: 8px; }
+
+  /* ============================================================
+     BUTTONS / PILLS
+  ============================================================ */
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    height: 36px; padding: 0 14px; border-radius: 10px;
+    font-size: 13px; font-weight: 500; letter-spacing: -0.005em;
+    transition: transform .15s, background .2s, border-color .2s, color .2s, box-shadow .25s;
+    white-space: nowrap;
+  }
+  .btn-primary {
+    color: white;
+    background: linear-gradient(180deg, var(--accent-2), var(--accent));
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.08) inset,
+      0 1px 0 rgba(255,255,255,0.25) inset,
+      0 8px 22px -10px rgba(99,102,241,0.7);
+  }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 0 0 1px rgba(255,255,255,0.14) inset, 0 1px 0 rgba(255,255,255,0.3) inset, 0 12px 28px -10px rgba(99,102,241,0.85); }
+  .btn-ghost { color: var(--fg-2); border: 1px solid var(--border); background: rgba(255,255,255,0.02); }
+  .btn-ghost:hover { border-color: var(--border-strong); background: rgba(255,255,255,0.04); }
+  .btn-success {
+    color: var(--success);
+    background: color-mix(in oklab, var(--success) 12%, transparent);
+    border: 1px solid color-mix(in oklab, var(--success) 35%, var(--border));
+    box-shadow: 0 0 16px -8px var(--success) inset;
+  }
+  .btn-success:hover { background: color-mix(in oklab, var(--success) 18%, transparent); }
+  .btn-icon {
+    width: 36px; height: 36px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border); border-radius: 10px;
+    color: var(--muted); background: rgba(255,255,255,0.02);
+    transition: color .15s, border-color .15s, background .2s;
+  }
+  .btn-icon:hover { color: var(--fg); border-color: var(--border-strong); background: rgba(255,255,255,0.05); }
+  .btn-icon svg { width: 16px; height: 16px; }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    height: 26px; padding: 0 10px;
+    border-radius: 999px;
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--muted); border: 1px solid var(--border);
+    background: rgba(255,255,255,0.02);
+  }
+  .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+  .pill-success { color: var(--success); border-color: color-mix(in oklab, var(--success) 35%, var(--border)); background: color-mix(in oklab, var(--success) 8%, transparent); }
+  .pill-success .dot { background: var(--success); box-shadow: 0 0 8px var(--success); }
+  .pill-accent { color: var(--accent-3); border-color: color-mix(in oklab, var(--accent) 38%, var(--border)); background: color-mix(in oklab, var(--accent) 10%, transparent); }
+  .pill-accent .dot { background: var(--accent-2); box-shadow: 0 0 8px var(--accent); }
+  .pill-warn { color: var(--warn); border-color: color-mix(in oklab, var(--warn) 35%, var(--border)); background: color-mix(in oklab, var(--warn) 10%, transparent); }
+  .pill-warn .dot { background: var(--warn); }
+
+  /* ============================================================
+     CARD PRIMITIVE
+  ============================================================ */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    backdrop-filter: blur(12px) saturate(140%);
+    -webkit-backdrop-filter: blur(12px) saturate(140%);
+    position: relative;
+    overflow: hidden;
+  }
+  .card.glow::before {
+    content: ''; position: absolute; inset: -1px; border-radius: inherit; padding: 1px;
+    background: linear-gradient(135deg, rgba(99,102,241,0.55), rgba(255,255,255,0.06) 35%, transparent 65%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+    pointer-events: none;
+  }
+  .card-pad { padding: clamp(20px, 2.4vw, 32px); }
+  .card-pad-tight { padding: 20px 22px; }
+
+  /* ============================================================
+     PAGE HEADER  ("Interview Result" + decision)
+  ============================================================ */
+  .page-head {
+    padding-top: clamp(64px, 8vw, 96px);
+    padding-bottom: 24px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 20px;
+    align-items: end;
+  }
+  @media (min-width: 760px) {
+    .page-head { grid-template-columns: 1fr auto; }
+  }
+  .page-eyebrow {
+    display: inline-flex; align-items: center; gap: 10px;
+    font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--muted-2);
+  }
+  .page-eyebrow .lit { color: var(--accent-3); }
+  .page-h1 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(34px, 4.2vw, 52px);
+    line-height: 1.04;
+    letter-spacing: -0.03em;
+    color: var(--fg);
+    margin: 8px 0 0;
+  }
+  .page-h1 em { font-style: normal; background: linear-gradient(180deg, #fff, #c7d2fe 70%, #818cf8); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .page-head-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  /* ============================================================
+     HERO BLOCK — candidate + score ring + summary
+  ============================================================ */
+  .hero {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+  @media (min-width: 1024px) {
+    .hero { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); }
+  }
+
+  /* candidate identity / summary */
+  .candidate-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .avatar {
+    width: 56px; height: 56px; border-radius: 50%;
+    background:
+      radial-gradient(circle at 35% 30%, rgba(255,255,255,0.6), transparent 50%),
+      radial-gradient(circle at 50% 50%, #c7d2fe, #818cf8 40%, #4338ca 80%, #1e1b4b);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.10), 0 0 28px rgba(99,102,241,0.55);
+    display: grid; place-items: center;
+    font-family: var(--font-display); font-weight: 600; font-size: 20px; letter-spacing: -0.02em;
+    color: white;
+  }
+  .candidate-id { display: flex; flex-direction: column; gap: 4px; }
+  .candidate-name { color: var(--fg); font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+  .candidate-role { color: var(--muted); font-size: 14px; }
+  .meta-row {
+    margin-top: 18px;
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  @media (min-width: 600px) { .meta-row { grid-template-columns: repeat(4, 1fr); } }
+  .meta-cell { background: var(--bg-2); padding: 12px 14px; }
+  .meta-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted-2); }
+  .meta-value { font-family: var(--font-mono); font-size: 13px; color: var(--fg-2); margin-top: 4px; }
+
+  .summary-block { margin-top: 24px; }
+  .summary-eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted-2);
+    margin-bottom: 10px;
+  }
+  .summary-block p { color: var(--fg-2); font-size: 15.5px; line-height: 1.65; max-width: 62ch; text-wrap: pretty; }
+  .summary-block p + p { margin-top: 14px; }
+  .summary-block p strong { color: var(--fg); font-weight: 500; }
+
+  /* score ring card */
+  .score-card { padding: clamp(20px, 2.4vw, 32px); display: flex; flex-direction: column; gap: 18px; }
+  .score-card-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  .score-card-head h3 {
+    margin: 0;
+    font-size: 13px; font-weight: 500;
+    color: var(--muted);
+    font-family: var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .score-ring-wrap {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    width: 100%;
+    max-width: 280px;
+    margin: 4px auto 0;
+    isolation: isolate;
+  }
+  /* outer glow */
+  .score-ring-wrap::before {
+    content: '';
+    position: absolute; inset: -8%;
+    border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(99,102,241,0.35), transparent 70%);
+    filter: blur(18px);
+    z-index: 0;
+  }
+  /* progress ring (conic) */
+  .score-ring {
+    position: absolute; inset: 0;
+    border-radius: 50%;
+    background: conic-gradient(
+      from -90deg,
+      var(--accent-3) 0%,
+      var(--accent) 50%,
+      var(--accent-deep) calc(var(--p, 87) * 1%),
+      rgba(255,255,255,0.06) calc(var(--p, 87) * 1%),
+      rgba(255,255,255,0.06) 100%
+    );
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.05);
+    z-index: 1;
+  }
+  /* inner mask -> ring */
+  .score-ring::after {
+    content: '';
+    position: absolute; inset: 14px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, rgba(255,255,255,0.04), transparent 50%), var(--bg-2);
+    border: 1px solid var(--border-soft);
+  }
+  .score-center {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 2;
+    text-align: center;
+  }
+  .score-num {
+    font-family: var(--font-display);
+    font-size: clamp(48px, 6vw, 64px);
+    font-weight: 600;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    color: var(--fg);
+    background: linear-gradient(180deg, #fff, #c7d2fe 65%, #818cf8);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .score-num .denom { font-size: 22px; color: var(--muted-2); -webkit-text-fill-color: var(--muted-2); }
+  .score-band {
+    margin-top: 10px;
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--accent-3);
+  }
+  .score-confidence {
+    margin-top: 6px;
+    font-family: var(--font-mono); font-size: 11px; color: var(--muted-2);
+  }
+  .score-foot {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden;
+  }
+  .score-foot .cell { background: var(--bg-2); padding: 10px 12px; }
+  .score-foot .l { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted-2); }
+  .score-foot .v { font-family: var(--font-mono); font-size: 13px; color: var(--fg-2); margin-top: 2px; }
+
+  /* ============================================================
+     RUBRIC — section breakdown, dense
+  ============================================================ */
+  .section { margin-bottom: 28px; }
+  .section-head {
+    display: flex; align-items: end; justify-content: space-between; gap: 16px;
+    margin-bottom: 16px;
+  }
+  .section-title {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(20px, 2vw, 26px);
+    letter-spacing: -0.02em;
+    color: var(--fg);
+    margin: 0;
+  }
+  .section-sub {
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--muted-2);
+  }
+
+  .rubric { display: flex; flex-direction: column; }
+  .rubric-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 22px clamp(20px, 2.2vw, 28px);
+    border-bottom: 1px solid var(--border);
+  }
+  .rubric-row:last-child { border-bottom: 0; }
+  @media (min-width: 820px) {
+    .rubric-row { grid-template-columns: 220px 1fr 280px; align-items: start; gap: 28px; }
+  }
+  .rubric-name { display: flex; flex-direction: column; gap: 6px; }
+  .rubric-name .n { color: var(--fg); font-size: 16px; font-weight: 500; letter-spacing: -0.01em; }
+  .rubric-name .w { font-family: var(--font-mono); font-size: 11px; color: var(--muted-2); letter-spacing: 0.04em; }
+  .rubric-evidence { color: var(--muted); font-size: 14px; line-height: 1.6; max-width: 60ch; text-wrap: pretty; }
+  .rubric-evidence .quote { color: var(--fg-2); }
+  .rubric-evidence .ref {
+    font-family: var(--font-mono); font-size: 11px; color: var(--accent-3);
+    border-bottom: 1px dashed color-mix(in oklab, var(--accent) 50%, transparent);
+    padding-bottom: 1px;
+  }
+  .rubric-meter { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .rubric-meter-head {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  }
+  .rubric-meter-head .score {
+    font-family: var(--font-mono); font-weight: 500;
+    font-size: 18px; letter-spacing: -0.01em; color: var(--fg);
+  }
+  .rubric-meter-head .score .denom { color: var(--muted-2); font-size: 13px; }
+  .rubric-meter-head .delta {
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--success);
+  }
+  .rubric-meter-head .delta.neg { color: var(--warn); }
+  .meter {
+    position: relative;
+    height: 6px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .meter > i {
+    display: block;
+    height: 100%;
+    width: var(--w, 50%);
+    background: linear-gradient(90deg, var(--accent-deep), var(--accent) 60%, var(--accent-3));
+    box-shadow: 0 0 12px color-mix(in oklab, var(--accent) 80%, transparent);
+    border-radius: 999px;
+  }
+  .meter > .baseline {
+    position: absolute; top: -3px; bottom: -3px;
+    left: var(--bw, 70%);
+    width: 1px;
+    background: rgba(255,255,255,0.4);
+  }
+  .meter-foot {
+    display: flex; justify-content: space-between;
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--muted-3);
+  }
+  .meter-foot .baseline-label { color: var(--muted-2); }
+
+  /* ============================================================
+     STRENGTHS / WATCH-OUTS  (two-column chip lists)
+  ============================================================ */
+  .two-col {
+    display: grid; grid-template-columns: 1fr; gap: 16px;
+  }
+  @media (min-width: 820px) { .two-col { grid-template-columns: 1fr 1fr; } }
+
+  .insight-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .insight-head .icon-pip {
+    width: 28px; height: 28px; border-radius: 8px;
+    display: grid; place-items: center;
+    border: 1px solid var(--border);
+  }
+  .insight-head.s .icon-pip { background: color-mix(in oklab, var(--success) 12%, transparent); border-color: color-mix(in oklab, var(--success) 38%, var(--border)); color: var(--success); }
+  .insight-head.w .icon-pip { background: color-mix(in oklab, var(--warn) 10%, transparent); border-color: color-mix(in oklab, var(--warn) 35%, var(--border)); color: var(--warn); }
+  .insight-head svg { width: 14px; height: 14px; }
+  .insight-head h3 { margin: 0; font-size: 16px; font-weight: 500; color: var(--fg); letter-spacing: -0.01em; }
+  .insight-list { display: flex; flex-direction: column; gap: 10px; list-style: none; padding: 0; margin: 0; }
+  .insight-list li {
+    display: grid; grid-template-columns: auto 1fr auto; gap: 12px;
+    align-items: start;
+    padding: 12px 14px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .insight-list li .tag {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 3px 7px; border-radius: 6px;
+    background: rgba(255,255,255,0.04); color: var(--muted-2);
+    border: 1px solid var(--border-soft);
+    white-space: nowrap;
+    margin-top: 1px;
+  }
+  .insight-list .body { color: var(--fg-2); font-size: 14px; line-height: 1.55; }
+  .insight-list .body small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .insight-list .freq {
+    font-family: var(--font-mono); font-size: 11px; color: var(--muted);
+    align-self: center;
+  }
+
+  /* ============================================================
+     TRANSCRIPT MOMENTS
+  ============================================================ */
+  .moments { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  @media (min-width: 1024px) { .moments { grid-template-columns: repeat(3, 1fr); } }
+  .moment {
+    padding: 20px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    display: flex; flex-direction: column; gap: 12px;
+    position: relative;
+  }
+  .moment-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  }
+  .moment-time {
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em;
+    color: var(--accent-3);
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .moment-time .play {
+    width: 18px; height: 18px; border-radius: 999px;
+    border: 1px solid color-mix(in oklab, var(--accent) 45%, var(--border));
+    background: color-mix(in oklab, var(--accent) 18%, transparent);
+    display: grid; place-items: center;
+  }
+  .moment-time .play svg { width: 8px; height: 8px; color: var(--accent-3); margin-left: 1px; }
+  .moment-tag {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 3px 8px; border-radius: 6px;
+    border: 1px solid var(--border-soft);
+    color: var(--muted);
+    background: rgba(255,255,255,0.03);
+  }
+  .moment-q {
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; color: var(--muted-2);
+  }
+  .moment-quote {
+    color: var(--fg-2);
+    font-size: 14px;
+    line-height: 1.6;
+    border-left: 2px solid var(--accent);
+    padding-left: 14px;
+  }
+  .moment-quote::before { content: '"'; color: var(--accent); margin-right: 2px; }
+  .moment-quote::after { content: '"'; color: var(--accent); margin-left: 2px; }
+  .moment-foot {
+    display: flex; align-items: center; justify-content: space-between;
+    font-family: var(--font-mono); font-size: 11px; color: var(--muted-2);
+    padding-top: 10px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .moment-foot .signal { color: var(--success); }
+  .moment-foot .signal.neg { color: var(--warn); }
+
+  /* ============================================================
+     BEHAVIORAL SIGNALS (KPI tiles)
+  ============================================================ */
+  .signals {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  @media (min-width: 760px) { .signals { grid-template-columns: repeat(3, 1fr); } }
+  @media (min-width: 1024px) { .signals { grid-template-columns: repeat(6, 1fr); } }
+  .signal-tile {
+    background: var(--bg-2);
+    padding: 18px 18px 16px;
+    display: flex; flex-direction: column; gap: 6px;
+    min-width: 0;
+  }
+  .signal-label {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted-2);
+  }
+  .signal-value {
+    font-family: var(--font-mono); font-weight: 500;
+    font-size: 22px; color: var(--fg); letter-spacing: -0.01em;
+    display: flex; align-items: baseline; gap: 4px;
+  }
+  .signal-value .unit { font-size: 12px; color: var(--muted-2); }
+  .signal-bar {
+    margin-top: 4px;
+    height: 4px; border-radius: 999px;
+    background: rgba(255,255,255,0.05);
+    position: relative; overflow: hidden;
+  }
+  .signal-bar > i {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    width: var(--w, 60%);
+    background: linear-gradient(90deg, var(--accent), var(--accent-3));
+    box-shadow: 0 0 8px color-mix(in oklab, var(--accent) 70%, transparent);
+    border-radius: 999px;
+  }
+  .signal-bar.s > i { background: linear-gradient(90deg, var(--success), color-mix(in oklab, var(--success) 60%, white)); box-shadow: 0 0 8px var(--success); }
+  .signal-bar.w > i { background: linear-gradient(90deg, var(--warn), color-mix(in oklab, var(--warn) 60%, white)); box-shadow: 0 0 8px var(--warn); }
+  .signal-cap {
+    font-family: var(--font-mono); font-size: 10px; color: var(--muted-2);
+  }
+
+  /* ============================================================
+     CALIBRATION / FAIRNESS
+  ============================================================ */
+  .calib {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  @media (min-width: 1024px) { .calib { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); } }
+  .calib-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .calib-head h3 { margin: 0; font-size: 16px; font-weight: 500; color: var(--fg); letter-spacing: -0.01em; }
+  .calib-head .icon-pip {
+    width: 28px; height: 28px; border-radius: 8px;
+    display: grid; place-items: center;
+    background: color-mix(in oklab, var(--accent) 12%, transparent);
+    border: 1px solid color-mix(in oklab, var(--accent) 35%, var(--border));
+    color: var(--accent-3);
+  }
+  .calib-head .icon-pip svg { width: 14px; height: 14px; }
+  .calib-controls { display: flex; flex-direction: column; gap: 8px; }
+  .calib-row {
+    display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.02);
+  }
+  .calib-row .name { color: var(--fg-2); font-size: 14px; }
+  .calib-row .name small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .calib-row .val { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+  .calib-toggle {
+    width: 32px; height: 18px;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--success) 35%, var(--border));
+    position: relative;
+    border: 1px solid color-mix(in oklab, var(--success) 45%, var(--border));
+  }
+  .calib-toggle::after {
+    content: ''; position: absolute;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--fg);
+    top: 2px; right: 2px;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.2), 0 1px 2px rgba(0,0,0,0.4);
+  }
+
+  .distrib {
+    padding: 24px;
+    display: flex; flex-direction: column; gap: 18px;
+  }
+  .distrib-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .distrib-head h3 { margin: 0; font-size: 14px; font-weight: 500; color: var(--fg-2); }
+  .distrib-head .ref-n { font-family: var(--font-mono); font-size: 11px; color: var(--muted-2); }
+  .distrib-chart {
+    position: relative;
+    height: 120px;
+    display: flex; align-items: end; gap: 4px;
+    padding-bottom: 22px;
+  }
+  .distrib-chart::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: 22px;
+    height: 1px; background: var(--border);
+  }
+  .distrib-bar {
+    flex: 1;
+    background: linear-gradient(180deg, var(--accent-2), var(--accent-deep));
+    opacity: 0.55;
+    border-radius: 3px 3px 0 0;
+    position: relative;
+  }
+  .distrib-bar.lit {
+    opacity: 1;
+    background: linear-gradient(180deg, #fff, var(--accent-2) 35%, var(--accent));
+    box-shadow: 0 0 14px color-mix(in oklab, var(--accent) 70%, transparent);
+  }
+  .distrib-bar.lit::before {
+    content: ''; position: absolute; left: 50%; transform: translateX(-50%);
+    bottom: -16px; width: 1px; height: 10px; background: var(--accent-2);
+  }
+  .distrib-axis {
+    display: flex; justify-content: space-between;
+    font-family: var(--font-mono); font-size: 10px; color: var(--muted-2);
+  }
+  .distrib-foot {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-soft);
+    font-family: var(--font-mono); font-size: 11px; color: var(--muted);
+  }
+  .distrib-foot .lit { color: var(--accent-3); }
+  .distrib-foot .pct { color: var(--fg); }
+
+  /* ============================================================
+     FOOTER ACTION BAR
+  ============================================================ */
+  .action-bar {
+    margin-top: 20px;
+    padding: 18px 22px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    flex-wrap: wrap;
+    backdrop-filter: blur(12px) saturate(140%);
+    -webkit-backdrop-filter: blur(12px) saturate(140%);
+  }
+  .action-meta {
+    display: flex; align-items: center; gap: 14px;
+    font-family: var(--font-mono); font-size: 11px; color: var(--muted-2);
+  }
+  .action-meta .sep { width: 1px; height: 12px; background: var(--border); }
+  .action-set { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  /* ============================================================
+     PAGE FOOT
+  ============================================================ */
+  .page-foot {
+    margin-top: 56px; padding: 32px 0 56px;
+    border-top: 1px solid var(--border-soft);
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    font-family: var(--font-mono); font-size: 11px; color: var(--muted-2);
+  }
+  .page-foot a { color: var(--muted); }
+  .page-foot a:hover { color: var(--fg-2); }
+
+  /* ============================================================
+     UTILS
+  ============================================================ */
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .stack-sm { display: flex; flex-direction: column; gap: 6px; }
+
+  /* Reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+
+<body>
+
+<div class="page-ambient" aria-hidden="true"></div>
+<div class="grid-mesh" aria-hidden="true"></div>
+
+<!-- ===================== NAV ===================== -->
+<nav class="nav" aria-label="Primary">
+  <div class="container">
+    <div class="nav-row">
+      <a href="index.html" class="brand" aria-label="Aura home">
+        <span class="mark" aria-hidden="true"></span>
+        <span>Aura</span>
+      </a>
+
+      <div class="breadcrumb" aria-label="Breadcrumb">
+        <a href="index.html">Reports</a>
+        <span class="sep">/</span>
+        <a href="index.html">Senior Backend Engineer</a>
+        <span class="sep">/</span>
+        <span class="current">AUR-7K2-9DM4</span>
+      </div>
+
+      <div class="nav-actions">
+        <button class="btn-icon" aria-label="Share report">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/></svg>
+        </button>
+        <button class="btn-icon" aria-label="Download PDF">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </button>
+        <a class="btn btn-ghost" href="index.html">Back to Aura</a>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<main class="container">
+
+  <!-- ===================== PAGE HEAD ===================== -->
+  <header class="page-head">
+    <div>
+      <span class="page-eyebrow">
+        <span class="lit">Interview Report</span>
+        <span>·</span>
+        <span>AUR-7K2-9DM4</span>
+        <span>·</span>
+        <span>May 18, 2026</span>
+      </span>
+      <h1 class="page-h1">Interview <em>Result</em></h1>
+    </div>
+    <div class="page-head-actions">
+      <button class="btn btn-ghost" type="button">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9"/><polyline points="3 4 3 12 11 12"/></svg>
+        Pass
+      </button>
+      <button class="btn btn-ghost" type="button">Schedule next round</button>
+      <button class="btn btn-success" type="button">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        Hire
+      </button>
+    </div>
+  </header>
+
+  <!-- ===================== HERO  ===================== -->
+  <section class="hero" aria-label="Candidate summary">
+    <article class="card glow card-pad" aria-labelledby="cand-h">
+      <div class="candidate-head">
+        <div class="avatar" aria-hidden="true">DC</div>
+        <div class="candidate-id">
+          <h2 id="cand-h" class="candidate-name">Dahlia Chen</h2>
+          <div class="candidate-role">Candidate · Senior Backend Engineer · Distributed Systems track</div>
+        </div>
+      </div>
+
+      <div class="meta-row" aria-label="Interview metadata">
+        <div class="meta-cell">
+          <div class="meta-label">Date</div>
+          <div class="meta-value">2026-05-18 · 14:02 PT</div>
+        </div>
+        <div class="meta-cell">
+          <div class="meta-label">Duration</div>
+          <div class="meta-value">47m 12s</div>
+        </div>
+        <div class="meta-cell">
+          <div class="meta-label">Modality</div>
+          <div class="meta-value">Voice · WSS · 12 ms</div>
+        </div>
+        <div class="meta-cell">
+          <div class="meta-label">Agent</div>
+          <div class="meta-value">Aura 4.2 · en-US</div>
+        </div>
+      </div>
+
+      <div class="summary-block">
+        <div class="summary-eyebrow">Overall performance summary</div>
+        <p>
+          Dahlia is a <strong>strong technical candidate</strong> for the Senior Backend Engineer role, with deep
+          fluency in distributed systems vocabulary and real production examples. Across the 47-minute conversation
+          she worked four-deep on every probe and self-corrected twice without prompting — a signal Aura weights heavily
+          for senior level.
+        </p>
+        <p>
+          Her system-design block stood out: she chose Kafka over RabbitMQ for partition rebalancing and walked
+          the trade-offs in concrete numbers (P99 tail, broker count, cost). The lone watch-out is a small but
+          consistent gap on cross-team conflict scenarios, where her answers were notably shorter and less specific.
+          Recommendation: <strong>Strong Hire</strong> — route to onsite with a focus on team-collaboration depth.
+        </p>
+      </div>
+    </article>
+
+    <article class="card glow score-card" aria-labelledby="score-h">
+      <div class="score-card-head">
+        <h3 id="score-h">Overall Score</h3>
+        <span class="pill pill-success"><span class="dot"></span>Strong Hire</span>
+      </div>
+
+      <div class="score-ring-wrap" aria-hidden="true">
+        <div class="score-ring" style="--p: 87;"></div>
+        <div class="score-center">
+          <div class="score-num">8.7<span class="denom">/10</span></div>
+          <div class="score-band">Top 12% · Senior BE</div>
+          <div class="score-confidence">confidence 91%</div>
+        </div>
+      </div>
+
+      <div class="score-foot">
+        <div class="cell">
+          <div class="l">Weighted</div>
+          <div class="v">8.694 / 10</div>
+        </div>
+        <div class="cell">
+          <div class="l">vs. role baseline</div>
+          <div class="v" style="color: var(--success);">+1.4 σ</div>
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <!-- ===================== STRENGTHS / WATCH-OUTS ===================== -->
+  <section class="section" aria-label="Strengths and watch-outs">
+    <div class="two-col">
+      <article class="card card-pad-tight">
+        <div class="insight-head s">
+          <span class="icon-pip" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </span>
+          <h3>Key strengths</h3>
+        </div>
+        <ul class="insight-list">
+          <li>
+            <span class="tag">technical</span>
+            <span class="body">Distributed systems vocabulary fluency<small>Used CAP, ISR, partition skew, hot keys correctly and unprompted.</small></span>
+            <span class="freq">5 evidence</span>
+          </li>
+          <li>
+            <span class="tag">specificity</span>
+            <span class="body">Concrete production examples<small>Cited real numbers: 4.2k QPS, 240 ms P99, 14-broker Kafka cluster.</small></span>
+            <span class="freq">8 evidence</span>
+          </li>
+          <li>
+            <span class="tag">behavioral</span>
+            <span class="body">Calm and structured under load<small>Held composure on intentionally ambiguous probe at 28:10.</small></span>
+            <span class="freq">3 evidence</span>
+          </li>
+          <li>
+            <span class="tag">meta</span>
+            <span class="body">Self-corrects without prompting<small>Caught her own consistency-model error before Aura asked the follow-up.</small></span>
+            <span class="freq">2 events</span>
+          </li>
+        </ul>
+      </article>
+
+      <article class="card card-pad-tight">
+        <div class="insight-head w">
+          <span class="icon-pip" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          </span>
+          <h3>Areas for improvement</h3>
+        </div>
+        <ul class="insight-list">
+          <li>
+            <span class="tag">scope</span>
+            <span class="body">Limited frontend exposure<small>Out of scope for this role — flag for cross-functional pairing only.</small></span>
+            <span class="freq">low impact</span>
+          </li>
+          <li>
+            <span class="tag">design</span>
+            <span class="body">Defaulted to monolith assumption early<small>Took 2 follow-up probes before considering a service split.</small></span>
+            <span class="freq">1 instance</span>
+          </li>
+          <li>
+            <span class="tag">behavioral</span>
+            <span class="body">Short answers on cross-team conflict<small>Avg 38 s vs. 84 s on technical probes — drove Culture score down.</small></span>
+            <span class="freq">3 instances</span>
+          </li>
+        </ul>
+      </article>
+    </div>
+  </section>
+
+  <!-- ===================== RUBRIC / SECTION BREAKDOWN ===================== -->
+  <section class="section" aria-label="Section breakdown">
+    <div class="section-head">
+      <h2 class="section-title">Section breakdown</h2>
+      <span class="section-sub">5 weighted dimensions · evidence-tagged</span>
+    </div>
+
+    <article class="card">
+      <div class="rubric">
+
+        <div class="rubric-row">
+          <div class="rubric-name">
+            <span class="n">System Design</span>
+            <span class="w">weight 0.30 · 12 probes</span>
+          </div>
+          <p class="rubric-evidence">
+            Strongest dimension. Walked Kafka vs. RabbitMQ partition rebalancing in production-grade specifics — broker count, ISR caveats, retention vs. compaction trade. Picked the right consistency model on second pass, prompted by her own audit. <span class="ref">→ moment 01:32</span>
+          </p>
+          <div class="rubric-meter">
+            <div class="rubric-meter-head">
+              <span class="score">9.2<span class="denom"> / 10</span></span>
+              <span class="delta">+1.7 vs. baseline</span>
+            </div>
+            <div class="meter" aria-hidden="true">
+              <i style="--w: 92%;"></i>
+              <span class="baseline" style="--bw: 75%;"></span>
+            </div>
+            <div class="meter-foot"><span>0</span><span class="baseline-label">role baseline 7.5</span><span>10</span></div>
+          </div>
+        </div>
+
+        <div class="rubric-row">
+          <div class="rubric-name">
+            <span class="n">Coding &amp; Algorithms</span>
+            <span class="w">weight 0.22 · 4 probes</span>
+          </div>
+          <p class="rubric-evidence">
+            Strong on data structure choices, articulated O(n log n) → O(n) optimisation by switching to a heap when latency was the constraint. Slight stumble naming complexity on the third probe; recovered cleanly. <span class="ref">→ moment 19:08</span>
+          </p>
+          <div class="rubric-meter">
+            <div class="rubric-meter-head">
+              <span class="score">8.4<span class="denom"> / 10</span></span>
+              <span class="delta">+0.9 vs. baseline</span>
+            </div>
+            <div class="meter" aria-hidden="true">
+              <i style="--w: 84%;"></i>
+              <span class="baseline" style="--bw: 75%;"></span>
+            </div>
+            <div class="meter-foot"><span>0</span><span class="baseline-label">role baseline 7.5</span><span>10</span></div>
+          </div>
+        </div>
+
+        <div class="rubric-row">
+          <div class="rubric-name">
+            <span class="n">Communication</span>
+            <span class="w">weight 0.18 · continuous</span>
+          </div>
+          <p class="rubric-evidence">
+            Tight signal-to-noise. Filler rate 2.3/min — lower than the 3.6/min role average. Used analogies sparingly and only when accurate. Two minor over-explanations flagged but not penalised.
+          </p>
+          <div class="rubric-meter">
+            <div class="rubric-meter-head">
+              <span class="score">8.6<span class="denom"> / 10</span></span>
+              <span class="delta">+1.1 vs. baseline</span>
+            </div>
+            <div class="meter" aria-hidden="true">
+              <i style="--w: 86%;"></i>
+              <span class="baseline" style="--bw: 75%;"></span>
+            </div>
+            <div class="meter-foot"><span>0</span><span class="baseline-label">role baseline 7.5</span><span>10</span></div>
+          </div>
+        </div>
+
+        <div class="rubric-row">
+          <div class="rubric-name">
+            <span class="n">Problem Solving</span>
+            <span class="w">weight 0.18 · 6 probes</span>
+          </div>
+          <p class="rubric-evidence">
+            Decomposed the tail-latency debugging probe into hypothesis tree without prompting. Reached level-4 depth on every probe (5 is max). One missed lever: didn't consider GC tuning until asked. <span class="ref">→ moment 28:10</span>
+          </p>
+          <div class="rubric-meter">
+            <div class="rubric-meter-head">
+              <span class="score">8.9<span class="denom"> / 10</span></span>
+              <span class="delta">+1.4 vs. baseline</span>
+            </div>
+            <div class="meter" aria-hidden="true">
+              <i style="--w: 89%;"></i>
+              <span class="baseline" style="--bw: 75%;"></span>
+            </div>
+            <div class="meter-foot"><span>0</span><span class="baseline-label">role baseline 7.5</span><span>10</span></div>
+          </div>
+        </div>
+
+        <div class="rubric-row">
+          <div class="rubric-name">
+            <span class="n">Culture &amp; Collaboration</span>
+            <span class="w">weight 0.12 · 4 probes</span>
+          </div>
+          <p class="rubric-evidence">
+            Above bar but the weakest dimension. Cross-team conflict probes returned shorter, lower-specificity answers (avg 38s vs 84s on technical). Worth a deliberate live-panel dive on stakeholder negotiation.
+          </p>
+          <div class="rubric-meter">
+            <div class="rubric-meter-head">
+              <span class="score">7.8<span class="denom"> / 10</span></span>
+              <span class="delta neg">−0.2 vs. baseline</span>
+            </div>
+            <div class="meter" aria-hidden="true">
+              <i style="--w: 78%;"></i>
+              <span class="baseline" style="--bw: 80%;"></span>
+            </div>
+            <div class="meter-foot"><span>0</span><span class="baseline-label">role baseline 8.0</span><span>10</span></div>
+          </div>
+        </div>
+
+      </div>
+    </article>
+  </section>
+
+  <!-- ===================== TRANSCRIPT MOMENTS ===================== -->
+  <section class="section" aria-label="Notable transcript moments">
+    <div class="section-head">
+      <h2 class="section-title">Notable moments</h2>
+      <span class="section-sub">3 of 14 auto-tagged · click to play</span>
+    </div>
+
+    <div class="moments">
+
+      <article class="moment">
+        <div class="moment-head">
+          <span class="moment-time">
+            <span class="play" aria-hidden="true"><svg viewBox="0 0 8 10" fill="currentColor"><polygon points="0,0 8,5 0,10"/></svg></span>
+            01:32
+          </span>
+          <span class="moment-tag">system-design</span>
+        </div>
+        <div class="moment-q">Q · Walk me through how you'd pick a message broker.</div>
+        <p class="moment-quote">If write fan-out and partition ordering matter, Kafka. If you need per-message ack and complex routing, RabbitMQ — but then you pay for it on rebalancing. At Stripe scale we ran 14 brokers, ISR replication factor 3, and we still saw skew on hot keys.</p>
+        <div class="moment-foot">
+          <span class="signal">+ vocabulary fluency</span>
+          <span>4.2s response</span>
+        </div>
+      </article>
+
+      <article class="moment">
+        <div class="moment-head">
+          <span class="moment-time">
+            <span class="play" aria-hidden="true"><svg viewBox="0 0 8 10" fill="currentColor"><polygon points="0,0 8,5 0,10"/></svg></span>
+            12:45
+          </span>
+          <span class="moment-tag">self-correction</span>
+        </div>
+        <div class="moment-q">Q · What consistency guarantees does that give you?</div>
+        <p class="moment-quote">Strong consistency on the primary, eventual on… actually wait, with quorum reads we'd hit linearizable for that path. Let me redo the failover case — if we lose a follower mid-write…</p>
+        <div class="moment-foot">
+          <span class="signal">+ unprompted self-correction</span>
+          <span>2.1s response</span>
+        </div>
+      </article>
+
+      <article class="moment">
+        <div class="moment-head">
+          <span class="moment-time">
+            <span class="play" aria-hidden="true"><svg viewBox="0 0 8 10" fill="currentColor"><polygon points="0,0 8,5 0,10"/></svg></span>
+            28:10
+          </span>
+          <span class="moment-tag">debugging</span>
+        </div>
+        <div class="moment-q">Q · P99 latency just doubled. Where do you start?</div>
+        <p class="moment-quote">Three places at once: a thread dump on a tagged pod, a histogram of recent connection-pool waits, and the GC log if it's JVM. The fast lever is usually pool exhaustion — I've seen it look exactly like CPU starvation but it's a connection thing.</p>
+        <div class="moment-foot">
+          <span class="signal">+ structured decomposition</span>
+          <span>3.6s response</span>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- ===================== BEHAVIORAL SIGNALS ===================== -->
+  <section class="section" aria-label="Behavioral signals">
+    <div class="section-head">
+      <h2 class="section-title">Behavioral signals</h2>
+      <span class="section-sub">measured continuously · normalized vs. role cohort</span>
+    </div>
+
+    <div class="signals">
+      <div class="signal-tile">
+        <div class="signal-label">Avg response latency</div>
+        <div class="signal-value">1.4<span class="unit">s</span></div>
+        <div class="signal-bar s" aria-hidden="true"><i style="--w: 78%;"></i></div>
+        <div class="signal-cap">faster than 78% of cohort</div>
+      </div>
+      <div class="signal-tile">
+        <div class="signal-label">Filler rate</div>
+        <div class="signal-value">2.3<span class="unit">/min</span></div>
+        <div class="signal-bar s" aria-hidden="true"><i style="--w: 82%;"></i></div>
+        <div class="signal-cap">role avg 3.6/min</div>
+      </div>
+      <div class="signal-tile">
+        <div class="signal-label">Probe depth reached</div>
+        <div class="signal-value">4.0<span class="unit">/5</span></div>
+        <div class="signal-bar" aria-hidden="true"><i style="--w: 80%;"></i></div>
+        <div class="signal-cap">avg across 26 probes</div>
+      </div>
+      <div class="signal-tile">
+        <div class="signal-label">Specificity index</div>
+        <div class="signal-value">0.82</div>
+        <div class="signal-bar s" aria-hidden="true"><i style="--w: 82%;"></i></div>
+        <div class="signal-cap">concrete refs / claims</div>
+      </div>
+      <div class="signal-tile">
+        <div class="signal-label">Self-corrections</div>
+        <div class="signal-value">2</div>
+        <div class="signal-bar s" aria-hidden="true"><i style="--w: 70%;"></i></div>
+        <div class="signal-cap">unprompted, both technical</div>
+      </div>
+      <div class="signal-tile">
+        <div class="signal-label">Follow-up acceptance</div>
+        <div class="signal-value">100<span class="unit">%</span></div>
+        <div class="signal-bar s" aria-hidden="true"><i style="--w: 100%;"></i></div>
+        <div class="signal-cap">26 / 26 probes engaged</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== CALIBRATION / FAIRNESS ===================== -->
+  <section class="section" aria-label="Calibration and fairness">
+    <div class="section-head">
+      <h2 class="section-title">Calibration &amp; fairness</h2>
+      <span class="section-sub">scores normalised against 412 reference interviews</span>
+    </div>
+
+    <div class="calib">
+      <article class="card card-pad">
+        <div class="calib-head">
+          <span class="icon-pip" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M4.93 4.93l2.83 2.83"/><path d="M16.24 16.24l2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="M4.93 19.07l2.83-2.83"/><path d="M16.24 7.76l2.83-2.83"/></svg>
+          </span>
+          <h3>Bias controls</h3>
+        </div>
+        <div class="calib-controls">
+          <div class="calib-row">
+            <div class="name">Voice &amp; accent normalization<small>Removes accent-driven scoring drift before evaluation.</small></div>
+            <span class="val">on</span>
+            <span class="calib-toggle" aria-hidden="true"></span>
+          </div>
+          <div class="calib-row">
+            <div class="name">Name redaction during scoring<small>Candidate name is replaced with a token before LLM judges.</small></div>
+            <span class="val">on</span>
+            <span class="calib-toggle" aria-hidden="true"></span>
+          </div>
+          <div class="calib-row">
+            <div class="name">Gendered-language detection<small>Scans questions and rationale for gendered phrasing.</small></div>
+            <span class="val" style="color: var(--success);">0 hits</span>
+            <span class="calib-toggle" aria-hidden="true"></span>
+          </div>
+          <div class="calib-row">
+            <div class="name">Resume → rubric drift check<small>Verifies probes match the rubric Aura built from the resume.</small></div>
+            <span class="val" style="color: var(--success);">98% aligned</span>
+            <span class="calib-toggle" aria-hidden="true"></span>
+          </div>
+        </div>
+      </article>
+
+      <article class="card distrib">
+        <div class="distrib-head">
+          <h3>Score distribution · Senior BE cohort</h3>
+          <span class="ref-n">n = 412</span>
+        </div>
+        <div class="distrib-chart" aria-hidden="true">
+          <div class="distrib-bar" style="height: 8%;"></div>
+          <div class="distrib-bar" style="height: 14%;"></div>
+          <div class="distrib-bar" style="height: 24%;"></div>
+          <div class="distrib-bar" style="height: 38%;"></div>
+          <div class="distrib-bar" style="height: 56%;"></div>
+          <div class="distrib-bar" style="height: 74%;"></div>
+          <div class="distrib-bar" style="height: 92%;"></div>
+          <div class="distrib-bar" style="height: 86%;"></div>
+          <div class="distrib-bar lit" style="height: 70%;" title="Dahlia"></div>
+          <div class="distrib-bar" style="height: 42%;"></div>
+        </div>
+        <div class="distrib-axis">
+          <span>5.0</span><span>5.5</span><span>6.0</span><span>6.5</span><span>7.0</span><span>7.5</span><span>8.0</span><span>8.5</span><span>9.0</span><span>9.5</span>
+        </div>
+        <div class="distrib-foot">
+          <span><span class="lit">●</span> Dahlia · <span class="pct">8.7</span></span>
+          <span>cohort median 7.3 · σ 0.9</span>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ===================== ACTION BAR ===================== -->
+  <section class="action-bar" aria-label="Decision actions">
+    <div class="action-meta">
+      <span>Generated by Aura 4.2</span>
+      <span class="sep"></span>
+      <span>Signed: 0xA9F4…2C1B</span>
+      <span class="sep"></span>
+      <span>Retention: 12 mo</span>
+    </div>
+    <div class="action-set">
+      <a class="btn btn-ghost" href="index.html">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        Back to Aura
+      </a>
+      <button class="btn btn-ghost" type="button">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export PDF
+      </button>
+      <button class="btn btn-ghost" type="button">Send to ATS</button>
+      <button class="btn btn-primary" type="button">
+        Move to onsite
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </button>
+    </div>
+  </section>
+
+  <footer class="page-foot">
+    <span>© 2026 Aura · Built on LiveKit &amp; Pydantic AI</span>
+    <span>
+      <a href="index.html">Landing</a> ·
+      <a href="#" aria-disabled="true">Methodology</a> ·
+      <a href="#" aria-disabled="true">API</a>
+    </span>
+  </footer>
+
+</main>
+
+<script>
+  // Smooth scroll for any in-page anchor (no scrollIntoView per host rules)
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('a[href^="#"]');
+    if (!a) return;
+    const id = a.getAttribute('href').slice(1);
+    if (!id) return;
+    const target = document.getElementById(id);
+    if (!target) return;
+    e.preventDefault();
+    const top = target.getBoundingClientRect().top + window.scrollY - 80;
+    window.scrollTo({ top, behavior: 'smooth' });
+  });
+
+  // Animate score ring + meters in on load
+  window.addEventListener('load', () => {
+    const ring = document.querySelector('.score-ring');
+    if (ring) {
+      const target = getComputedStyle(ring).getPropertyValue('--p').trim() || '87';
+      ring.style.setProperty('--p', '0');
+      requestAnimationFrame(() => {
+        ring.style.transition = '';
+        let cur = 0;
+        const goal = parseFloat(target);
+        const step = () => {
+          cur += (goal - cur) * 0.08;
+          if (Math.abs(goal - cur) < 0.2) cur = goal;
+          ring.style.setProperty('--p', cur.toFixed(2));
+          if (cur < goal) requestAnimationFrame(step);
+        };
+        step();
+      });
+    }
+    document.querySelectorAll('.meter > i, .signal-bar > i').forEach((bar) => {
+      const w = bar.style.getPropertyValue('--w');
+      bar.style.setProperty('--w', '0%');
+      requestAnimationFrame(() => {
+        bar.style.transition = 'width .9s cubic-bezier(.2,.7,.2,1)';
+        requestAnimationFrame(() => bar.style.setProperty('--w', w));
+      });
+    });
+  });
+</script>
+
+</body>
+</html>

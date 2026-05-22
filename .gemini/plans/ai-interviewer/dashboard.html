@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Aura — Recruiter Dashboard</title>
+<meta name="description" content="Manage interview sessions and candidate reports with Aura." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" />
+
+<style>
+  /* ---------- Tokens ---------- */
+  :root {
+    --bg: #09090b; --bg-2: #0c0c0f;
+    --surface: rgba(255,255,255,0.03); --surface-2: rgba(255,255,255,0.05);
+    --border: #27272a; --border-soft: rgba(255,255,255,0.06);
+    --fg: #fafafa; --fg-2: #e4e4e7; --muted: #a1a1aa; --muted-2: #71717a;
+    --accent: #6366f1; --accent-2: #818cf8; --accent-deep: #4338ca; --success: #10b981;
+    --font-display: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-body:    'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    --t-display: 32px; --t-h2: 24px; --t-h3: 18px; --t-body: 15px; --t-small: 13px; --t-mono: 12px;
+    --gutter: clamp(20px, 4vw, 56px); --radius-sm: 10px; --radius: 16px; --radius-lg: 24px;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg-2); font-family: var(--font-body); -webkit-font-smoothing: antialiased; }
+  
+  /* ---------- Background & Mesh ---------- */
+  .page-ambient { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+  .page-ambient::before { content: ''; position: absolute; top: -10%; right: -5%; width: 600px; height: 600px; background: radial-gradient(closest-side, rgba(99,102,241,0.12), transparent 70%); filter: blur(40px); }
+  .grid-mesh { position: fixed; inset: 0; pointer-events: none; z-index: 0; background-image: linear-gradient(to right, rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px); background-size: 64px 64px; mask-image: radial-gradient(ellipse at 50% 0%, black 20%, transparent 80%); }
+
+  .container { width: 100%; max-width: 1200px; margin: 0 auto; padding: 100px var(--gutter) 60px; position: relative; z-index: 1; }
+
+  /* ---------- Nav ---------- */
+  .nav-pill { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 100; height: 48px; padding: 0 12px 0 20px; display: flex; align-items: center; gap: 24px; background: rgba(12,12,15,0.7); backdrop-filter: blur(12px) saturate(160%); border: 1px solid var(--border); border-radius: 24px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+  .nav-brand { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--fg); font-size: 14px; }
+  .nav-brand .mark { width: 16px; height: 16px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff, transparent 60%), var(--accent); }
+  .nav-links { display: flex; gap: 18px; font-size: 13px; color: var(--muted); }
+  .nav-links a:hover { color: var(--fg); }
+  .nav-cta { margin-left: auto; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 14px; border-radius: 8px; font-size: 13px; font-weight: 500; transition: all .2s; }
+  .btn-primary { background: var(--accent); color: white; border: 1px solid rgba(255,255,255,0.1); }
+  .btn-primary:hover { background: var(--accent-2); transform: translateY(-1px); }
+
+  /* ---------- Header ---------- */
+  .dash-header { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 40px; }
+  .dash-header h1 { font-size: var(--t-display); font-weight: 600; color: var(--fg); letter-spacing: -0.03em; margin: 0; }
+  .date-selector { font-family: var(--font-mono); font-size: 12px; color: var(--muted); padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); display: flex; align-items: center; gap: 8px; }
+
+  /* ---------- Stats Grid ---------- */
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 48px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; position: relative; overflow: hidden; }
+  .stat-card::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 1px; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent); }
+  .stat-label { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+  .stat-value { font-size: 32px; font-weight: 600; color: var(--fg); letter-spacing: -0.02em; }
+  .stat-trend { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; margin-top: 8px; }
+  .trend-up { color: var(--success); }
+  .stat-chart { position: absolute; bottom: 0; left: 0; right: 0; height: 40px; opacity: 0.3; pointer-events: none; }
+
+  /* ---------- Section ---------- */
+  .section-title { font-size: 14px; font-weight: 600; color: var(--fg); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; }
+  .section-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  /* ---------- Table ---------- */
+  .table-container { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 40px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; padding: 16px 24px; font-weight: 500; color: var(--muted); border-bottom: 1px solid var(--border); background: rgba(255,255,255,0.01); }
+  td { padding: 16px 24px; border-bottom: 1px solid var(--border-soft); vertical-align: middle; }
+  tr:last-child td { border-bottom: 0; }
+  tr:hover td { background: rgba(255,255,255,0.01); }
+
+  .candidate { display: flex; align-items: center; gap: 12px; }
+  .avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--border); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: var(--muted); border: 1px solid var(--border-soft); }
+  .cand-name { font-weight: 500; color: var(--fg); }
+  .cand-role { font-size: 12px; color: var(--muted); }
+
+  .badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 500; }
+  .badge-success { background: rgba(16,185,129,0.1); color: var(--success); border: 1px solid rgba(16,185,129,0.2); }
+  .badge-neutral { background: rgba(255,255,255,0.03); color: var(--muted); border: 1px solid var(--border); }
+
+  .score-cell { font-family: var(--font-mono); font-weight: 500; color: var(--fg); }
+  .score-pill { display: inline-block; padding: 2px 8px; border-radius: 4px; background: rgba(99,102,241,0.1); color: var(--accent-2); border: 1px solid rgba(99,102,241,0.2); }
+
+  .status-pulse { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--accent-2); }
+  .dot-pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); animation: pulse 2s infinite; }
+  @keyframes pulse { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.3); opacity: 0.5; } 100% { transform: scale(1); opacity: 1; } }
+
+  .btn-icon { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); transition: all .2s; }
+  .btn-icon:hover { border-color: var(--muted); color: var(--fg); }
+</style>
+</head>
+<body>
+
+  <div class="page-ambient"></div>
+  <div class="grid-mesh"></div>
+
+  <nav class="nav-pill">
+    <div class="nav-brand">
+      <div class="mark"></div>
+      Aura
+    </div>
+    <div class="nav-links">
+      <a href="index.html">Product</a>
+      <a href="dashboard.html" style="color: var(--fg);">Dashboard</a>
+      <a href="rubric-builder.html">Rubrics</a>
+    </div>
+    <div class="nav-cta">
+      <a href="interview-arena.html" class="btn btn-primary">New Interview</a>
+    </div>
+  </nav>
+
+  <main class="container">
+    <header class="dash-header">
+      <div>
+        <h1>Recruiter Dashboard</h1>
+      </div>
+      <div class="date-selector">
+        <svg style="width:14px;height:14px;" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+        Last 30 Days: May 22, 2026
+      </div>
+    </header>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Total Interviews</div>
+        <div class="stat-value">1,284</div>
+        <div class="stat-trend trend-up">
+          <svg style="width:12px;height:12px;" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>
+          12% vs last month
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Avg. Interview Score</div>
+        <div class="stat-value">7.2<span style="font-size:16px;color:var(--muted-2);">/10</span></div>
+        <div class="stat-trend" style="color:var(--muted);">
+          Steady
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Recruiter Time Saved</div>
+        <div class="stat-value">428h</div>
+        <div class="stat-trend trend-up">
+          <svg style="width:12px;height:12px;" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>
+          18% improvement
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Candidate Experience</div>
+        <div class="stat-value">4.8<span style="font-size:16px;color:var(--muted-2);">/5</span></div>
+        <div class="stat-trend trend-up">
+          <svg style="width:12px;height:12px;" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>
+          Top 1% NPS
+        </div>
+      </div>
+    </div>
+
+    <div class="section-title">Active Sessions</div>
+    <div class="table-container" style="margin-bottom: 48px;">
+      <table>
+        <thead>
+          <tr>
+            <th>Candidate</th>
+            <th>Role</th>
+            <th>Status</th>
+            <th>Runtime</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <div class="candidate">
+                <div class="avatar">EB</div>
+                <div>
+                  <div class="cand-name">Elena Belova</div>
+                </div>
+              </div>
+            </td>
+            <td>Staff Frontend Engineer</td>
+            <td>
+              <div class="status-pulse">
+                <div class="dot-pulse"></div>
+                Live Interview
+              </div>
+            </td>
+            <td style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">14:22</td>
+            <td style="text-align:right;">
+              <button class="btn btn-sm btn-ghost" style="border:1px solid var(--border);">Listen Live</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section-title">Recent Reports</div>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Candidate</th>
+            <th>Role</th>
+            <th>Recommendation</th>
+            <th>Score</th>
+            <th>Date</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="cursor: pointer;" onclick="window.location.href='sample-report.html'">
+            <td>
+              <div class="candidate">
+                <div class="avatar" style="background:var(--accent-deep);color:white;border:0;">DC</div>
+                <div>
+                  <div class="cand-name">Dahlia Chen</div>
+                  <div class="cand-role">6 yrs exp · San Francisco</div>
+                </div>
+              </div>
+            </td>
+            <td>Sr. Backend Engineer</td>
+            <td><span class="badge badge-success">Strong Hire</span></td>
+            <td class="score-cell"><span class="score-pill">8.7</span></td>
+            <td style="font-size:12px;color:var(--muted);">Today, 10:45 AM</td>
+            <td style="text-align:right;">
+              <button class="btn-icon">
+                <svg style="width:14px;height:14px;" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+              </button>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <div class="candidate">
+                <div class="avatar">MR</div>
+                <div>
+                  <div class="cand-name">Marcus Reed</div>
+                  <div class="cand-role">4 yrs exp · London</div>
+                </div>
+              </div>
+            </td>
+            <td>Backend Engineer</td>
+            <td><span class="badge badge-neutral">Potential</span></td>
+            <td class="score-cell"><span class="score-pill">6.4</span></td>
+            <td style="font-size:12px;color:var(--muted);">Yesterday, 4:20 PM</td>
+            <td style="text-align:right;">
+              <button class="btn-icon">
+                <svg style="width:14px;height:14px;" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+              </button>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <div class="candidate">
+                <div class="avatar">JS</div>
+                <div>
+                  <div class="cand-name">Jordan Smith</div>
+                  <div class="cand-role">8 yrs exp · New York</div>
+                </div>
+              </div>
+            </td>
+            <td>Infrastructure Lead</td>
+            <td><span class="badge badge-success">Hire</span></td>
+            <td class="score-cell"><span class="score-pill">7.9</span></td>
+            <td style="font-size:12px;color:var(--muted);">May 20, 2026</td>
+            <td style="text-align:right;">
+              <button class="btn-icon">
+                <svg style="width:14px;height:14px;" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+</body>
+</html>
