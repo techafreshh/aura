@@ -77,15 +77,17 @@ class InterviewWorkflow:
         self.session = session
         self.session_id = session_id
 
-    @llm.function_tool(description="Evaluate the candidate's answer and suggest a follow-up question.")
+    @llm.function_tool(description="Evaluate the candidate's answer when you're unsure what to ask next or want to change topics. Do NOT call after every answer.")
     async def evaluate_answer(self, response_summary: str) -> str:
         logger.info(f"Evaluating answer: {response_summary}")
         prompt = f"Skills to look for: {self.context.plan.extracted_skills}\nCandidate's Answer: {response_summary}"
-        result = await evaluator_agent.run(prompt)
-        eval_result = result.output
-        # Only return the follow-up question to the agent - don't expose scores to the candidate
-        if eval_result.suggested_follow_up:
-            return f"Ask this follow-up: {eval_result.suggested_follow_up}"
+        try:
+            result = await evaluator_agent.run(prompt)
+            eval_result = result.output
+            if eval_result.suggested_follow_up:
+                return f"Ask this follow-up: {eval_result.suggested_follow_up}"
+        except Exception as e:
+            logger.warning(f"evaluate_answer failed: {e}")
         return "The answer was satisfactory. Move on to the next topic."
 
     @llm.function_tool(description="End the interview and generate a final report. Call this when you have asked enough questions.")
@@ -176,9 +178,9 @@ async def entrypoint(ctx: JobContext):
         f"Here are some questions you can ask: {', '.join(plan.question_bank)}. "
         "Your goal is to conduct a smooth, conversational interview. "
         "Start by greeting the candidate. "
-        "Use the evaluate_answer tool after each answer to get follow-up suggestions. "
+        "Rely on your own judgment for natural follow-ups — do NOT call evaluate_answer after every response. "
+        "Only use evaluate_answer when you're genuinely unsure what to ask next or want to change topics. "
         "IMPORTANT: Never share scores, feedback, or evaluation results with the candidate. "
-        "Only use the tool's response to guide your next question. "
         "When the interview is complete (after 3-5 questions), use the end_interview tool. "
         "Keep your responses concise and wait for the candidate to finish speaking before responding."
     )

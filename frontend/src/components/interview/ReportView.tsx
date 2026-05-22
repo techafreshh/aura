@@ -2,7 +2,8 @@ import type { FinalReport } from "@/api/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { CheckCircle, AlertCircle } from "lucide-react";
+import { CheckCircle, AlertCircle, Download } from "lucide-react";
+import { jsPDF } from "jspdf";
 
 interface ReportViewProps {
   report: FinalReport;
@@ -18,6 +19,56 @@ export function ReportView({ report, onDone }: ReportViewProps) {
       case "No Hire": return "bg-red-500";
       default: return "bg-gray-500";
     }
+  };
+
+  const handleDownload = () => {
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 20;
+    const maxWidth = pageWidth - margin * 2;
+    let y = 20;
+
+    const addText = (text: string, size: number, bold = false) => {
+      doc.setFontSize(size);
+      doc.setFont("helvetica", bold ? "bold" : "normal");
+      const lines = doc.splitTextToSize(text, maxWidth);
+      if (y + lines.length * size * 0.5 > 270) {
+        doc.addPage();
+        y = 20;
+      }
+      doc.text(lines, margin, y);
+      y += lines.length * size * 0.5 + 4;
+    };
+
+    addText("INTERVIEW REPORT", 18, true);
+    y += 4;
+    addText(`Candidate: ${report.candidate_name}`, 12);
+    addText(`Overall Score: ${report.overall_score}/100`, 12);
+    addText(`Recommendation: ${report.recommendation}`, 12);
+    y += 6;
+
+    addText("Summary", 14, true);
+    addText(report.summary, 10);
+    y += 4;
+
+    addText("Section Grades", 14, true);
+    for (const s of report.section_grades) {
+      addText(`${s.section_name}: ${s.score}/10 — ${s.comments}`, 10);
+    }
+    y += 4;
+
+    addText("Strengths", 14, true);
+    for (const s of report.strengths) {
+      addText(`• ${s}`, 10);
+    }
+    y += 4;
+
+    addText("Areas for Improvement", 14, true);
+    for (const w of report.weaknesses) {
+      addText(`• ${w}`, 10);
+    }
+
+    doc.save(`interview-report-${report.candidate_name.replace(/\s+/g, "-").toLowerCase()}.pdf`);
   };
 
   return (
@@ -105,7 +156,13 @@ export function ReportView({ report, onDone }: ReportViewProps) {
         </CardContent>
       </Card>
 
-      <div className="flex justify-center pt-6">
+      <div className="flex justify-center gap-4 pt-6">
+        <button
+          onClick={handleDownload}
+          className="flex items-center gap-2 border border-primary text-primary hover:bg-primary/10 px-8 py-2 rounded-md transition-colors"
+        >
+          <Download className="h-4 w-4" /> Download Report
+        </button>
         <button 
           onClick={onDone}
           className="bg-primary text-primary-foreground hover:bg-primary/90 px-8 py-2 rounded-md transition-colors"

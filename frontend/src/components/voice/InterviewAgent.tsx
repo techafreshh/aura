@@ -74,7 +74,7 @@ function InterviewInner({ sessionId, onInterviewEnd }: { sessionId: string; onIn
   // The agent publishes transcriptions for both itself and the user.
   // We differentiate by checking if the transcribed track matches the user's mic track.
   const localMicTrackSid = localParticipant?.getTrackPublication(Track.Source.Microphone)?.trackSid;
-  const transcriptMessages = transcriptions.map((t: any, idx: number) => {
+  const rawMessages = transcriptions.map((t: any, idx: number) => {
     const transcribedTrackId = t.streamInfo?.attributes?.['lk.transcribed_track_id'];
     const isLocal = transcribedTrackId === localMicTrackSid;
     return {
@@ -83,6 +83,17 @@ function InterviewInner({ sessionId, onInterviewEnd }: { sessionId: string; onIn
       isLocal,
     };
   }).filter(msg => msg.message);
+
+  // Merge consecutive messages from the same speaker
+  const transcriptMessages = rawMessages.reduce<typeof rawMessages>((acc, msg) => {
+    const last = acc[acc.length - 1];
+    if (last && last.isLocal === msg.isLocal) {
+      last.message += ' ' + msg.message;
+    } else {
+      acc.push({ ...msg });
+    }
+    return acc;
+  }, []);
 
   // Auto-scroll transcript
   const transcriptEndRef = useRef<HTMLDivElement>(null);
