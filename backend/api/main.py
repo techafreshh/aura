@@ -1,13 +1,19 @@
 import uuid
 import os
-from fastapi import FastAPI, UploadFile, File, HTTPException, Query
+from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 from livekit.api import AccessToken, VideoGrants
 from agent.parser import agent
 from utils.pdf_parser import extract_text_from_pdf
 from models.schemas import UploadResponse, InterviewPlan, FinalReport
 
+limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="AI Interviewer API")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Add CORS middleware
 app.add_middleware(
@@ -22,7 +28,8 @@ plans: dict[str, InterviewPlan] = {}
 reports: dict[str, FinalReport] = {}
 
 @app.post("/upload", response_model=UploadResponse)
-async def upload_resume(file: UploadFile = File(...)):
+@limiter.limit("2/hour")
+async def upload_resume(request: Request, file: UploadFile = File(...)):
     # Validate file type
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
@@ -64,7 +71,8 @@ async def get_plan(session_id: str):
     return plan
 
 @app.get("/token")
-async def get_token(session_id: str = Query(..., description="The session ID/room name to join")):
+@limiter.limit("2/hour")
+async def get_token(request: Request, session_id: str = Query(..., description="The session ID/room name to join")):
     api_key = os.getenv("LIVEKIT_API_KEY")
     api_secret = os.getenv("LIVEKIT_API_SECRET")
 
