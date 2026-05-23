@@ -124,7 +124,7 @@ export function Landing() {
                 </svg>
               </Link>
               <a
-                href="https://github.com/your-username/AI-Interviewer"
+                href="https://github.com/techafreshh/aura"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="btn btn-lg btn-ghost btn-github"
