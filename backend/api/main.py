@@ -16,9 +16,13 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Add CORS middleware
+origins = ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"]
+if os.getenv("DOMAIN"):
+    origins.append(os.getenv("DOMAIN"))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
