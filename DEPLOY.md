@@ -7,6 +7,7 @@
 - LiveKit Cloud account
 - OpenRouter API key
 - OpenAI API key
+- MinIO instance (for report archival) — requires `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`
 
 ## Setup
 
