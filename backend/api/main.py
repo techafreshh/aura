@@ -1,6 +1,6 @@
 import uuid
 import os
-from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Query
+from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -8,6 +8,8 @@ from slowapi.util import get_remote_address
 from livekit.api import AccessToken, VideoGrants
 from agent.parser import agent
 from utils.pdf_parser import extract_text_from_pdf
+from utils.storage import archive_report
+from utils.pdf_report import generate_report_pdf
 from models.schemas import UploadResponse, InterviewPlan, FinalReport
 
 limiter = Limiter(key_func=get_remote_address)
@@ -99,8 +101,14 @@ async def get_token(request: Request, session_id: str = Query(..., description="
         raise HTTPException(status_code=500, detail=f"Failed to generate token: {str(e)}")
 
 @app.post("/report/{session_id}")
-async def save_report(session_id: str, report: FinalReport):
+async def save_report(session_id: str, report: FinalReport, background_tasks: BackgroundTasks):
     reports[session_id] = report
+
+    def _archive():
+        pdf_bytes = generate_report_pdf(report)
+        archive_report(session_id, report.model_dump(), pdf_bytes)
+
+    background_tasks.add_task(_archive)
     return {"status": "success"}
 
 @app.get("/report/{session_id}", response_model=FinalReport)
