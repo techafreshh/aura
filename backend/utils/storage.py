@@ -2,6 +2,7 @@ import os
 import io
 import json
 import logging
+import re
 from minio import Minio
 
 logger = logging.getLogger("storage")
@@ -29,8 +30,10 @@ def archive_report(session_id: str, report_dict: dict, pdf_bytes: bytes) -> None
         _ensure_bucket(client, bucket)
 
         json_data = json.dumps(report_dict).encode()
-        client.put_object(bucket, f"{session_id}.json", io.BytesIO(json_data), len(json_data))
-        client.put_object(bucket, f"{session_id}.pdf", io.BytesIO(pdf_bytes), len(pdf_bytes))
+        name_slug = re.sub(r"[^a-z0-9]+", "-", report_dict.get("candidate_name", "unknown").lower()).strip("-")
+        folder = f"{name_slug}_{session_id}"
+        client.put_object(bucket, f"{folder}/report.json", io.BytesIO(json_data), len(json_data))
+        client.put_object(bucket, f"{folder}/report.pdf", io.BytesIO(pdf_bytes), len(pdf_bytes))
 
         logger.info("Archived report %s to MinIO", session_id)
     except Exception as e:

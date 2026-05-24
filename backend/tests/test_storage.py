@@ -32,12 +32,12 @@ def test_archive_report_calls_put_object(mock_minio_cls):
 
     from utils.storage import archive_report
 
-    archive_report("sess-1", {"key": "val"}, b"fake-pdf")
+    archive_report("sess-1", {"key": "val", "candidate_name": "John Doe"}, b"fake-pdf")
 
     assert mock_client.put_object.call_count == 2
     calls = mock_client.put_object.call_args_list
-    assert calls[0][0][1] == "sess-1.json"
-    assert calls[1][0][1] == "sess-1.pdf"
+    assert calls[0][0][1] == "john-doe_sess-1/report.json"
+    assert calls[1][0][1] == "john-doe_sess-1/report.pdf"
 
 
 @patch("utils.storage.Minio")
