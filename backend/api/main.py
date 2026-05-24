@@ -38,7 +38,7 @@ plans: dict[str, InterviewPlan] = {}
 reports: dict[str, FinalReport] = {}
 
 @app.post("/upload", response_model=UploadResponse)
-@limiter.limit("2/hour")
+@limiter.limit("10/hour")
 async def upload_resume(request: Request, file: UploadFile = File(...)):
     # Validate file type
     if not file.filename.lower().endswith(".pdf"):
