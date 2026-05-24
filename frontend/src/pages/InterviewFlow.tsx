@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import axios from 'axios'
 import { useInterview } from '@/hooks/use-interview'
 import { uploadResume, getToken } from '@/api/client'
 import { InterviewAgent } from '@/components/voice/InterviewAgent'
@@ -28,7 +29,10 @@ export function InterviewFlow() {
       startPreview(data)
       toast({ title: "Resume parsed", description: `Plan ready for ${data.plan_summary.candidate_name}.` })
     } catch (error) {
-      toast({ title: "Upload failed", description: error instanceof Error ? error.message : "Upload a valid PDF.", variant: "destructive" })
+      const msg = axios.isAxiosError(error) && error.response?.status === 429
+        ? "Rate limit reached. Please try again later."
+        : error instanceof Error ? error.message : "Upload a valid PDF."
+      toast({ title: "Upload failed", description: msg, variant: "destructive" })
     } finally { setIsUploading(false) }
   }
 
@@ -39,8 +43,11 @@ export function InterviewFlow() {
       const t = await getToken(sessionId)
       setToken(t)
       startInterview()
-    } catch {
-      toast({ title: "Connection failed", description: "Could not get access token.", variant: "destructive" })
+    } catch (error) {
+      const msg = axios.isAxiosError(error) && error.response?.status === 429
+        ? "Rate limit reached. Please try again later."
+        : "Could not get access token."
+      toast({ title: "Connection failed", description: msg, variant: "destructive" })
     } finally { setIsConnecting(false) }
   }
 
