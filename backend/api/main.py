@@ -1,6 +1,8 @@
 import uuid
 import os
+import json
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Query, BackgroundTasks
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -8,8 +10,7 @@ from slowapi.util import get_remote_address
 from livekit.api import AccessToken, VideoGrants
 from agent.parser import agent
 from utils.pdf_parser import extract_text_from_pdf
-from utils.storage import archive_report
-from utils.pdf_report import generate_report_pdf
+from utils.storage import archive_report, archive_transcript, get_artifact, archive_pdf
 from models.schemas import UploadResponse, InterviewPlan, FinalReport
 
 limiter = Limiter(
@@ -109,8 +110,7 @@ async def save_report(session_id: str, report: FinalReport, background_tasks: Ba
     reports[session_id] = report
 
     def _archive():
-        pdf_bytes = generate_report_pdf(report)
-        archive_report(session_id, report.model_dump(), pdf_bytes)
+        archive_report(session_id, report.model_dump(), b"")
 
     background_tasks.add_task(_archive)
     return {"status": "success"}
@@ -125,4 +125,38 @@ async def get_report(session_id: str):
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+
+@app.post("/transcript/{session_id}")
+async def save_transcript(session_id: str, payload: dict, background_tasks: BackgroundTasks):
+    def _archive():
+        archive_transcript(session_id, payload.get("candidate_name", "unknown"), json.dumps(payload.get("entries", [])).encode())
+    background_tasks.add_task(_archive)
+    return {"status": "success"}
+
+
+@app.post("/upload-pdf/{session_id}")
+async def upload_pdf(session_id: str, file: UploadFile = File(...), background_tasks: BackgroundTasks = None):
+    report = reports.get(session_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Session not found")
+    pdf_bytes = await file.read()
+    background_tasks.add_task(archive_pdf, session_id, report.candidate_name, pdf_bytes)
+    return {"status": "success"}
+
+
+@app.get("/download/{session_id}/{file_type}")
+async def download_artifact(session_id: str, file_type: str):
+    report = reports.get(session_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Session not found")
+    file_map = {"transcript": ("transcript.json", "application/json"), "pdf": ("report.pdf", "application/pdf")}
+    entry = file_map.get(file_type)
+    if not entry:
+        raise HTTPException(status_code=400, detail="Invalid file type. Use: transcript, pdf")
+    filename, content_type = entry
+    data = get_artifact(session_id, report.candidate_name, filename)
+    if not data:
+        raise HTTPException(status_code=404, detail="File not found")
+    return Response(content=data, media_type=content_type, headers={"Content-Disposition": f"attachment; filename={filename}"})
 

@@ -66,7 +66,7 @@ def test_archive_report_does_not_raise_on_error(mock_minio_cls):
 @pytest.mark.asyncio
 async def test_save_report_returns_200():
     report_data = _sample_report().model_dump()
-    with patch("api.main.archive_report"), patch("api.main.generate_report_pdf", return_value=b"pdf"):
+    with patch("api.main.archive_report"):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             response = await ac.post("/report/test-session", json=report_data)
     assert response.status_code == 200

@@ -59,4 +59,14 @@ export const getReport = async (sessionId: string): Promise<FinalReport> => {
   return response.data;
 };
 
+export const getDownloadUrl = (sessionId: string, fileType: 'pdf' | 'transcript'): string => {
+  return `${BASE_URL}/download/${sessionId}/${fileType}`;
+};
+
+export const uploadPdf = async (sessionId: string, pdfBlob: Blob): Promise<void> => {
+  const formData = new FormData();
+  formData.append('file', pdfBlob, 'report.pdf');
+  await api.post(`/upload-pdf/${sessionId}`, formData);
+};
+
 export default api;

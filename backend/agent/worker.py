@@ -3,6 +3,7 @@ import asyncio
 import httpx
 import sys
 import os
+import time
 from pathlib import Path
 
 # Add the backend directory to sys.path to allow running as a script
@@ -35,7 +36,8 @@ logger.setLevel(logging.INFO)
 class InterviewContext:
     plan: InterviewPlan
     current_phase: str = "Intro"
-    transcript_lines: list = field(default_factory=list)
+    transcript: list = field(default_factory=list)
+    start_time: float = 0.0
     report_generated: bool = False
 
 
@@ -45,8 +47,8 @@ async def generate_and_save_report(context: InterviewContext, session_id: str):
         return
     context.report_generated = True
 
-    transcript_text = "\n".join(context.transcript_lines) if context.transcript_lines else "No transcript available."
-    logger.info(f"Generating report from transcript ({len(context.transcript_lines)} lines)")
+    transcript_text = "\n".join(f"{e['speaker']}: {e['text']}" for e in context.transcript) if context.transcript else "No transcript available."
+    logger.info(f"Generating report from transcript ({len(context.transcript)} entries)")
 
     try:
         result = await reporter_agent.run(
@@ -67,6 +69,12 @@ async def generate_and_save_report(context: InterviewContext, session_id: str):
                 logger.info("Successfully saved report to backend.")
             else:
                 logger.error(f"Failed to save report: {response.text}")
+
+            # POST transcript to backend
+            await client.post(
+                f"{backend_url}/transcript/{session_id}",
+                json={"candidate_name": context.plan.candidate_name, "entries": context.transcript},
+            )
     except Exception as e:
         logger.error(f"Error generating/saving report: {e}")
 
@@ -133,25 +141,25 @@ async def entrypoint(ctx: JobContext):
     )
     
     workflow = InterviewWorkflow(plan=plan, session=session, session_id=session_id)
+    workflow.context.start_time = time.time()
 
     # Collect transcript via events
     @session.on("user_input_transcribed")
     def on_user_input(ev):
         if ev.is_final:
-            workflow.context.transcript_lines.append(f"Candidate: {ev.transcript}")
+            workflow.context.transcript.append({"speaker": "Candidate", "text": ev.transcript, "timestamp_s": round(time.time() - workflow.context.start_time, 2)})
 
     @session.on("conversation_item_added")
     def on_conversation_item(ev):
         item = ev.item
         if hasattr(item, 'role') and item.role == 'assistant':
-            # Extract text content from the ChatMessage
             text_parts = []
             if hasattr(item, 'content'):
                 for part in item.content:
                     if hasattr(part, 'text') and part.text:
                         text_parts.append(part.text)
             if text_parts:
-                workflow.context.transcript_lines.append(f"Interviewer: {' '.join(text_parts)}")
+                workflow.context.transcript.append({"speaker": "Interviewer", "text": " ".join(text_parts), "timestamp_s": round(time.time() - workflow.context.start_time, 2)})
 
     # Generate report immediately when participant disconnects
     report_task = None

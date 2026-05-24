@@ -57,7 +57,7 @@ export function InterviewFlow() {
   }
 
   if (step === 'REPORT' && report) {
-    return <ReportView report={report} onDone={reset} />
+    return <ReportView report={report} sessionId={sessionId!} onDone={reset} />
   }
 
   return (
