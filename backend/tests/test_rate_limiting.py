@@ -1,0 +1,40 @@
+import pytest
+from httpx import AsyncClient, ASGITransport
+
+
+def test_limiter_uses_redis_url_when_set(monkeypatch):
+    """Limiter should use REDIS_URL from environment when available."""
+    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
+    import importlib
+    import api.main as main_module
+
+    importlib.reload(main_module)
+    assert main_module.limiter._storage_uri == "redis://localhost:6379/0"
+
+
+def test_limiter_falls_back_to_memory_when_no_redis(monkeypatch):
+    """Limiter should fall back to in-memory when REDIS_URL is not set."""
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    import importlib
+    import api.main as main_module
+
+    importlib.reload(main_module)
+    assert main_module.limiter._storage_uri is None
+    assert main_module.limiter._in_memory_fallback_enabled is True
+
+
+@pytest.mark.asyncio
+async def test_rate_limited_endpoint_returns_429():
+    """Rate-limited endpoints should return 429 after exceeding limit."""
+    from api.main import app
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
+        # /upload is limited to 2/hour - send 3 requests
+        for _ in range(3):
+            files = {"file": ("test.pdf", b"%PDF-fake", "application/pdf")}
+            response = await ac.post("/upload", files=files)
+
+        # Third request should be rate limited
+        assert response.status_code == 429

@@ -12,7 +12,11 @@ from utils.storage import archive_report
 from utils.pdf_report import generate_report_pdf
 from models.schemas import UploadResponse, InterviewPlan, FinalReport
 
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(
+    key_func=get_remote_address,
+    storage_uri=os.getenv("REDIS_URL"),
+    in_memory_fallback_enabled=True,
+)
 app = FastAPI(title="AI Interviewer API")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
