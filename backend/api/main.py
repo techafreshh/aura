@@ -15,6 +15,14 @@ from utils.storage import archive_report, archive_transcript, get_artifact, arch
 from utils.tracing import setup_langfuse
 from models.schemas import UploadResponse, InterviewPlan, FinalReport
 
+import sentry_sdk
+
+sentry_sdk.init(
+    dsn=os.getenv("SENTRY_DSN"),
+    traces_sample_rate=1.0,
+    environment=os.getenv("ENVIRONMENT", "production"),
+)
+
 limiter = Limiter(
     key_func=get_remote_address,
     storage_uri=os.getenv("REDIS_URL"),
