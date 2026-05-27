@@ -23,6 +23,10 @@ services:
       args:
         VITE_API_URL: /api
         VITE_LIVEKIT_URL: ${LIVEKIT_URL}
+        VITE_SENTRY_DSN: ${VITE_SENTRY_DSN}
+        SENTRY_AUTH_TOKEN: ${SENTRY_AUTH_TOKEN}
+        SENTRY_ORG: ${SENTRY_ORG}
+        SENTRY_PROJECT: ${SENTRY_PROJECT}
     container_name: aura-frontend
     ports:
       - "127.0.0.1:3000:80"
