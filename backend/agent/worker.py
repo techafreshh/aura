@@ -22,10 +22,12 @@ from livekit.agents import (
     inference,
     llm,
 )
+from livekit.agents.telemetry import set_tracer_provider
 from livekit.plugins import silero
 from models.schemas import InterviewPlan
 from agent.evaluator import evaluator_agent
 from agent.reporter import reporter_agent
+from utils.tracing import setup_langfuse
 
 load_dotenv()
 
@@ -112,6 +114,11 @@ async def entrypoint(ctx: JobContext):
     
     session_id = ctx.room.name
     backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
+
+    # Initialize tracing
+    trace_provider = setup_langfuse()
+    if trace_provider:
+        set_tracer_provider(trace_provider, metadata={"langfuse.session.id": session_id})
     
     # Fetch plan from backend
     plan = None
@@ -176,6 +183,8 @@ async def entrypoint(ctx: JobContext):
             await report_task
         else:
             await generate_and_save_report(workflow.context, session_id)
+        if trace_provider:
+            trace_provider.force_flush()
 
     ctx.add_shutdown_callback(on_shutdown)
 

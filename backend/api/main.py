@@ -8,9 +8,11 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from livekit.api import AccessToken, VideoGrants
+from langfuse import propagate_attributes
 from agent.parser import agent
 from utils.pdf_parser import extract_text_from_pdf
 from utils.storage import archive_report, archive_transcript, get_artifact, archive_pdf
+from utils.tracing import setup_langfuse
 from models.schemas import UploadResponse, InterviewPlan, FinalReport
 
 limiter = Limiter(
@@ -19,6 +21,7 @@ limiter = Limiter(
     in_memory_fallback_enabled=True,
 )
 app = FastAPI(title="AI Interviewer API")
+setup_langfuse()
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -53,10 +56,11 @@ async def upload_resume(request: Request, file: UploadFile = File(...)):
         text = await extract_text_from_pdf(file_bytes)
         
         # Run the AI Agent to parse the resume
-        result = await agent.run(text)
-        
         # Generate a unique session ID
         session_id = str(uuid.uuid4())
+
+        with propagate_attributes(session_id=session_id):
+            result = await agent.run(text)
         
         # Store the plan in memory
         plans[session_id] = result.output
