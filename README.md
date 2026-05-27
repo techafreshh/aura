@@ -87,6 +87,9 @@ The app is served on `127.0.0.1:3000`. Point a reverse proxy (Caddy/nginx) with 
 | `MINIO_ACCESS_KEY` | MinIO access key |
 | `MINIO_SECRET_KEY` | MinIO secret key |
 | `MINIO_BUCKET` | MinIO bucket name |
+| `LANGFUSE_PUBLIC_KEY` | Langfuse project public key (optional) |
+| `LANGFUSE_SECRET_KEY` | Langfuse project secret key (optional) |
+| `LANGFUSE_BASE_URL` | Langfuse instance URL (optional) |
 
 ## API Endpoints
 
