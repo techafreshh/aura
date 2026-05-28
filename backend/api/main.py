@@ -24,7 +24,7 @@ sentry_sdk.init(
 )
 
 limiter = Limiter(
-    key_func=get_remote_address,
+    key_func=lambda request: request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or get_remote_address(request),
     storage_uri=os.getenv("REDIS_URL"),
     in_memory_fallback_enabled=True,
 )
@@ -94,7 +94,7 @@ async def get_plan(session_id: str):
     return plan
 
 @app.get("/token")
-@limiter.limit("2/hour")
+@limiter.limit("5/hour")
 async def get_token(request: Request, session_id: str = Query(..., description="The session ID/room name to join")):
     api_key = os.getenv("LIVEKIT_API_KEY")
     api_secret = os.getenv("LIVEKIT_API_SECRET")

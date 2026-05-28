@@ -31,10 +31,9 @@ async def test_rate_limited_endpoint_returns_429():
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as ac:
-        # /upload is limited to 2/hour - send 3 requests
-        for _ in range(3):
-            files = {"file": ("test.pdf", b"%PDF-fake", "application/pdf")}
-            response = await ac.post("/upload", files=files)
+        # /token is limited to 5/hour - send 6 requests
+        for _ in range(6):
+            response = await ac.get("/token", params={"session_id": "test"})
 
-        # Third request should be rate limited
+        # 6th request should be rate limited
         assert response.status_code == 429
