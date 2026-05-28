@@ -1,5 +1,6 @@
 import os
 import logging
+from opentelemetry import trace as otel_trace
 from opentelemetry.sdk.trace import TracerProvider
 
 logger = logging.getLogger("tracing")
@@ -26,6 +27,10 @@ def setup_langfuse() -> TracerProvider | None:
         from pydantic_ai import Agent
 
         _provider = TracerProvider()
+
+        # Register globally so Pydantic AI's Agent.instrument_all() emits to Langfuse.
+        # Must happen before Agent.instrument_all() so the patched agents pick up the global provider.
+        otel_trace.set_tracer_provider(_provider)
 
         Langfuse(
             public_key=public_key,

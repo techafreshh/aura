@@ -178,19 +178,30 @@ async def entrypoint(ctx: JobContext):
             if text_parts:
                 workflow.context.transcript.append({"speaker": "Interviewer", "text": " ".join(text_parts), "timestamp_s": round(time.time() - workflow.context.start_time, 2)})
 
-    # Generate report immediately when participant disconnects
+    # Generate report immediately when participant disconnects, then shut down the worker
     report_task = None
 
     @ctx.room.on("participant_disconnected")
     def on_participant_left(participant):
         nonlocal report_task
-        logger.info(f"Participant {participant.identity} disconnected. Triggering report generation...")
-        report_task = asyncio.ensure_future(generate_and_save_report(workflow.context, session_id))
+        logger.info(f"Participant {participant.identity} disconnected. Triggering report generation and shutdown...")
+
+        async def _finalize():
+            try:
+                await generate_and_save_report(workflow.context, session_id)
+            finally:
+                logger.info("Shutting down agent session to release resources.")
+                ctx.shutdown(reason="participant_disconnected")
+
+        report_task = asyncio.ensure_future(_finalize())
 
     # Also generate on shutdown as safety net
     async def on_shutdown():
         if report_task:
-            await report_task
+            try:
+                await report_task
+            except Exception as e:
+                logger.error(f"Report task errored: {e}")
         else:
             await generate_and_save_report(workflow.context, session_id)
         if _langfuse_provider:

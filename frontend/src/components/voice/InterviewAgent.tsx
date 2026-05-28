@@ -3,6 +3,7 @@ import {
   RoomAudioRenderer,
   useVoiceAssistant,
   useLocalParticipant,
+  useRoomContext,
   useTranscriptions,
   useConnectionState,
   useMediaDeviceSelect,
@@ -86,6 +87,7 @@ function InterviewInner({ sessionId, candidateName = "Candidate", onInterviewEnd
   const [transcriptWidth, setTranscriptWidth] = useState(420);
 
   const roomState = useConnectionState();
+  const room = useRoomContext();
   const { state: agentState, audioTrack: agentAudioTrack } = useVoiceAssistant();
   const { localParticipant } = useLocalParticipant();
   const transcriptions = useTranscriptions();
@@ -254,14 +256,16 @@ function InterviewInner({ sessionId, candidateName = "Candidate", onInterviewEnd
     setMuted(!muted);
   };
 
-  // End interview
+  // End interview — disconnect the room so the worker generates the report and shuts down
   const endInterview = async () => {
     setEndedOpen(true);
     setHasEnded(true);
     try { await localParticipant?.setMicrophoneEnabled(false); } catch {}
+    try { await room?.disconnect(); } catch (e) { console.error("Room disconnect failed:", e); }
   };
 
-  // After end, fetch report
+  // After end, fetch report (poll until the worker has saved it)
+  const [reportError, setReportError] = useState<string | null>(null);
   useEffect(() => {
     if (hasConnected && roomState === ConnectionState.Disconnected && !hasEnded) {
       setHasEnded(true);
@@ -270,29 +274,27 @@ function InterviewInner({ sessionId, candidateName = "Candidate", onInterviewEnd
     if (hasEnded && endedOpen) {
       let cancelled = false;
       (async () => {
-        for (let i = 0; i < 12; i++) {
+        // Poll for up to ~90s to give the worker time to generate and save the report.
+        const MAX_ATTEMPTS = 30;
+        const DELAY_MS = 3000;
+        for (let i = 0; i < MAX_ATTEMPTS; i++) {
           if (cancelled) return;
           try {
-            await new Promise((r) => setTimeout(r, 3000));
+            await new Promise((r) => setTimeout(r, DELAY_MS));
             const report = await getReport(sessionId);
             if (!cancelled) onInterviewEnd(report);
             return;
-          } catch {}
+          } catch {
+            // 404 expected until worker posts the report
+          }
+        }
+        if (!cancelled) {
+          setReportError("Report generation timed out. The interview may have been too short for a meaningful report.");
         }
       })();
       return () => { cancelled = true; };
     }
   }, [roomState, hasConnected, hasEnded, endedOpen, sessionId, onInterviewEnd]);
-
-  // Disconnect after end
-  useEffect(() => {
-    if (hasEnded && roomState === ConnectionState.Connected) {
-      const t = setTimeout(() => {
-        try { (localParticipant as any)?.disconnect?.(); } catch {}
-      }, 200);
-      return () => clearTimeout(t);
-    }
-  }, [hasEnded, roomState, localParticipant]);
 
   // Resizable transcript handle
   const dragRef = useRef<{ startX: number; startW: number } | null>(null);
@@ -476,8 +478,13 @@ function InterviewInner({ sessionId, candidateName = "Candidate", onInterviewEnd
               <path d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h2>Interview complete</h2>
-          <p>Generating the candidate report — this typically takes a few seconds.</p>
+          <h2>{reportError ? "Report unavailable" : "Interview complete"}</h2>
+          <p>{reportError ?? "Generating the candidate report — this typically takes a few seconds."}</p>
+          {reportError && (
+            <button className="btn btn-ghost" type="button" onClick={() => window.location.assign("/interview")} style={{ marginTop: 16 }}>
+              Start over
+            </button>
+          )}
         </div>
       </div>
 
