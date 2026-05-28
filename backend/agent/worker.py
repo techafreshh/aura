@@ -42,6 +42,9 @@ sentry_sdk.init(
 logger = logging.getLogger("voice-agent")
 logger.setLevel(logging.INFO)
 
+# Initialize Langfuse at module level so Agent.instrument_all() patches agents before any room connects
+_langfuse_provider = setup_langfuse()
+
 @dataclass
 class InterviewContext:
     plan: InterviewPlan
@@ -123,10 +126,9 @@ async def entrypoint(ctx: JobContext):
     session_id = ctx.room.name
     backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
 
-    # Initialize tracing
-    trace_provider = setup_langfuse()
-    if trace_provider:
-        set_tracer_provider(trace_provider, metadata={"langfuse.session.id": session_id})
+    # Use module-level Langfuse provider for LiveKit telemetry
+    if _langfuse_provider:
+        set_tracer_provider(_langfuse_provider, metadata={"langfuse.session.id": session_id})
     
     # Fetch plan from backend
     plan = None
@@ -191,8 +193,8 @@ async def entrypoint(ctx: JobContext):
             await report_task
         else:
             await generate_and_save_report(workflow.context, session_id)
-        if trace_provider:
-            trace_provider.force_flush()
+        if _langfuse_provider:
+            _langfuse_provider.force_flush()
 
     ctx.add_shutdown_callback(on_shutdown)
 
