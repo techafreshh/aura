@@ -28,3 +28,12 @@ class FinalReport(BaseModel):
     weaknesses: List[str] = Field(description="Areas for improvement or weaknesses identified.")
     recommendation: Literal["Hire", "No Hire", "Strong Hire", "Hold"] = Field(description="Final hiring recommendation.")
     summary: str = Field(description="A comprehensive summary of the interview.")
+
+class TranscriptEntry(BaseModel):
+    speaker: str
+    text: str
+    timestamp_s: float
+
+class TranscriptPayload(BaseModel):
+    candidate_name: str
+    entries: List[TranscriptEntry]

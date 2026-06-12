@@ -264,35 +264,30 @@ function InterviewInner({ sessionId, candidateName = "Candidate", onInterviewEnd
     try { await room?.disconnect(); } catch (e) { console.error("Room disconnect failed:", e); }
   };
 
-  // After end, fetch report (poll until the worker has saved it)
+  // After end, fetch report via SSE
   const [reportError, setReportError] = useState<string | null>(null);
   useEffect(() => {
     if (hasConnected && roomState === ConnectionState.Disconnected && !hasEnded) {
       setHasEnded(true);
       setEndedOpen(true);
     }
+
     if (hasEnded && endedOpen) {
-      let cancelled = false;
-      (async () => {
-        // Poll for up to ~90s to give the worker time to generate and save the report.
-        const MAX_ATTEMPTS = 30;
-        const DELAY_MS = 3000;
-        for (let i = 0; i < MAX_ATTEMPTS; i++) {
-          if (cancelled) return;
-          try {
-            await new Promise((r) => setTimeout(r, DELAY_MS));
-            const report = await getReport(sessionId);
-            if (!cancelled) onInterviewEnd(report);
-            return;
-          } catch {
-            // 404 expected until worker posts the report
-          }
-        }
-        if (!cancelled) {
+      const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const es = new EventSource(`${API_BASE}/report-stream/${sessionId}`);
+      es.onmessage = (e) => {
+        const data = JSON.parse(e.data);
+        if (data.error) {
           setReportError("Report generation timed out. The interview may have been too short for a meaningful report.");
+        } else {
+          onInterviewEnd(data);
         }
-      })();
-      return () => { cancelled = true; };
+        es.close();
+      };
+      es.onerror = () => {
+        es.close();
+      };
+      return () => es.close();
     }
   }, [roomState, hasConnected, hasEnded, endedOpen, sessionId, onInterviewEnd]);
 

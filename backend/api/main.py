@@ -1,8 +1,11 @@
 import uuid
 import os
 import json
+import re
+import html
+import asyncio
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Query, BackgroundTasks
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -13,7 +16,7 @@ from agent.parser import agent
 from utils.pdf_parser import extract_text_from_pdf
 from utils.storage import archive_report, archive_transcript, get_artifact, archive_pdf
 from utils.tracing import setup_langfuse
-from models.schemas import UploadResponse, InterviewPlan, FinalReport
+from models.schemas import UploadResponse, InterviewPlan, FinalReport, TranscriptPayload
 
 import sentry_sdk
 
@@ -34,9 +37,14 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Add CORS middleware
-origins = ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"]
-if os.getenv("DOMAIN"):
-    origins.append(os.getenv("DOMAIN"))
+env = os.getenv("ENVIRONMENT", "development")
+if env == "production":
+    domain = os.getenv("DOMAIN")
+    if not domain:
+        raise RuntimeError("DOMAIN env var is required in production")
+    origins = [domain]
+else:
+    origins = ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -46,8 +54,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+MAX_PDF_SIZE = 10 * 1024 * 1024  # 10 MB
+
 plans: dict[str, InterviewPlan] = {}
 reports: dict[str, FinalReport] = {}
+
+
+def sanitize_name(name: str) -> str:
+    name = re.sub(r'<[^>]+>', '', name)
+    name = html.escape(name)
+    name = name[:100]
+    name = re.sub(r'\s+', ' ', name).strip()
+    return name
+
 
 @app.post("/upload", response_model=UploadResponse)
 @limiter.limit("10/hour")
@@ -71,11 +90,13 @@ async def upload_resume(request: Request, file: UploadFile = File(...)):
             result = await agent.run(text)
         
         # Store the plan in memory
-        plans[session_id] = result.output
+        plan = result.output
+        plan.candidate_name = sanitize_name(plan.candidate_name)
+        plans[session_id] = plan
         
         return UploadResponse(
             session_id=session_id,
-            plan_summary=result.output
+            plan_summary=plan
         )
         
     except ValueError as e:
@@ -118,7 +139,8 @@ async def get_token(request: Request, session_id: str = Query(..., description="
         raise HTTPException(status_code=500, detail=f"Failed to generate token: {str(e)}")
 
 @app.post("/report/{session_id}")
-async def save_report(session_id: str, report: FinalReport, background_tasks: BackgroundTasks):
+@limiter.limit("30/hour")
+async def save_report(request: Request, session_id: str, report: FinalReport, background_tasks: BackgroundTasks):
     reports[session_id] = report
 
     def _archive():
@@ -140,9 +162,13 @@ async def health_check():
 
 
 @app.post("/transcript/{session_id}")
-async def save_transcript(session_id: str, payload: dict, background_tasks: BackgroundTasks):
+async def save_transcript(session_id: str, payload: TranscriptPayload, background_tasks: BackgroundTasks):
     def _archive():
-        archive_transcript(session_id, payload.get("candidate_name", "unknown"), json.dumps(payload.get("entries", [])).encode())
+        archive_transcript(
+            session_id,
+            payload.candidate_name,
+            json.dumps([e.model_dump() for e in payload.entries]).encode()
+        )
     background_tasks.add_task(_archive)
     return {"status": "success"}
 
@@ -153,12 +179,15 @@ async def upload_pdf(session_id: str, file: UploadFile = File(...), background_t
     if not report:
         raise HTTPException(status_code=404, detail="Session not found")
     pdf_bytes = await file.read()
+    if len(pdf_bytes) > MAX_PDF_SIZE:
+        raise HTTPException(status_code=413, detail="PDF exceeds 10 MB limit")
     background_tasks.add_task(archive_pdf, session_id, report.candidate_name, pdf_bytes)
     return {"status": "success"}
 
 
 @app.get("/download/{session_id}/{file_type}")
-async def download_artifact(session_id: str, file_type: str):
+@limiter.limit("30/hour")
+async def download_artifact(request: Request, session_id: str, file_type: str):
     report = reports.get(session_id)
     if not report:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -172,3 +201,15 @@ async def download_artifact(session_id: str, file_type: str):
         raise HTTPException(status_code=404, detail="File not found")
     return Response(content=data, media_type=content_type, headers={"Content-Disposition": f"attachment; filename={filename}"})
 
+
+@app.get("/report-stream/{session_id}")
+async def report_stream(session_id: str):
+    async def event_generator():
+        for _ in range(360):  # 6 min timeout, check every 1s
+            report = reports.get(session_id)
+            if report:
+                yield f"data: {json.dumps(report.model_dump())}\n\n"
+                return
+            await asyncio.sleep(1)
+        yield f"data: {json.dumps({'error': 'timeout'})}\n\n"
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
