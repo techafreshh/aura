@@ -11,7 +11,6 @@ backend_root = Path(__file__).parent.parent
 if str(backend_root) not in sys.path:
     sys.path.append(str(backend_root))
 
-from dataclasses import dataclass, field
 from dotenv import load_dotenv
 from livekit.agents import (
     AutoSubscribe,
@@ -25,6 +24,7 @@ from livekit.agents import (
 from livekit.agents.telemetry import set_tracer_provider
 from livekit.plugins import silero
 from models.schemas import InterviewPlan, FinalReport
+from models.context import InterviewContext
 from agent.evaluator import evaluator_agent
 from agent.reporter import reporter_agent
 from utils.tracing import setup_langfuse
@@ -44,16 +44,6 @@ logger.setLevel(logging.INFO)
 
 # Initialize Langfuse at module level so Agent.instrument_all() patches agents before any room connects
 _langfuse_provider = setup_langfuse()
-
-@dataclass
-class InterviewContext:
-    plan: InterviewPlan
-    current_phase: str = "Intro"
-    transcript: list = field(default_factory=list)
-    start_time: float = 0.0
-    report_generated: bool = False
-    wrap_up_triggered: bool = False
-
 
 _report_lock = asyncio.Lock()
 
@@ -301,7 +291,7 @@ async def entrypoint(ctx: JobContext):
                     logger.warning(f"Failed to inject wrap-up message: {e}")
                 await asyncio.sleep(2)
 
-            await asyncio.sleep(5)  # Check every 5 seconds
+            await asyncio.sleep(1)  # Check every 1 second
 
     timer_task = asyncio.create_task(time_cap_timer())
 
@@ -310,3 +300,4 @@ async def entrypoint(ctx: JobContext):
 
 if __name__ == "__main__":
     cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
+

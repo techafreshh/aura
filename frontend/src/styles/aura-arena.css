@@ -268,8 +268,8 @@
 
 /* Timer warning states */
 .aura-arena-page .timer-warning { color: #f59e0b; }
-.aura-arena-page .timer-critical { color: #ef4444; animation: pulse 1s infinite; }
-@keyframes pulse {
+.aura-arena-page .timer-critical { color: #ef4444; animation: aura-arena-timer-pulse 1s infinite; }
+@keyframes aura-arena-timer-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
 }
