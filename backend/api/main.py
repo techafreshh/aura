@@ -58,9 +58,14 @@ MAX_PDF_SIZE = 10 * 1024 * 1024  # 10 MB
 
 plans: dict[str, InterviewPlan] = {}
 reports: dict[str, FinalReport] = {}
+_sse_connections: dict[str, int] = {}
+MAX_SSE_PER_SESSION = 3
 
 
 def sanitize_name(name: str) -> str:
+    if not isinstance(name, str):
+        return "Unknown"
+    name = re.sub(r'<(script|style|iframe|object|embed)[^>]*>.*?</\1>', '', name, flags=re.IGNORECASE | re.DOTALL)
     name = re.sub(r'<[^>]+>', '', name)
     name = html.escape(name)
     name = name[:100]
@@ -91,7 +96,7 @@ async def upload_resume(request: Request, file: UploadFile = File(...)):
         
         # Store the plan in memory
         plan = result.output
-        plan.candidate_name = sanitize_name(plan.candidate_name)
+        plan.candidate_name = sanitize_name(plan.candidate_name) if plan.candidate_name else "Unknown"
         plans[session_id] = plan
         
         return UploadResponse(
@@ -203,13 +208,23 @@ async def download_artifact(request: Request, session_id: str, file_type: str):
 
 
 @app.get("/report-stream/{session_id}")
-async def report_stream(session_id: str):
+@limiter.limit("10/hour")
+async def report_stream(request: Request, session_id: str):
+    current = _sse_connections.get(session_id, 0)
+    if current >= MAX_SSE_PER_SESSION:
+        raise HTTPException(status_code=429, detail="Too many connections for this session")
+    _sse_connections[session_id] = current + 1
+
     async def event_generator():
-        for _ in range(360):  # 6 min timeout, check every 1s
-            report = reports.get(session_id)
-            if report:
-                yield f"data: {json.dumps(report.model_dump())}\n\n"
-                return
-            await asyncio.sleep(1)
-        yield f"data: {json.dumps({'error': 'timeout'})}\n\n"
+        try:
+            for _ in range(120):  # 2 min timeout, check every 1s
+                report = reports.get(session_id)
+                if report:
+                    yield f"data: {json.dumps(report.model_dump())}\n\n"
+                    return
+                await asyncio.sleep(1)
+            yield f"data: {json.dumps({'error': 'timeout'})}\n\n"
+        finally:
+            _sse_connections[session_id] = max(0, _sse_connections.get(session_id, 1) - 1)
+
     return StreamingResponse(event_generator(), media_type="text/event-stream")

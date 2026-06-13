@@ -1,10 +1,11 @@
+import importlib
 import pytest
 import os
 from unittest.mock import patch
 from httpx import AsyncClient, ASGITransport
 import api.main as main_module
 from api.main import app
-from models.schemas import InterviewPlan
+from models.schemas import InterviewPlan, FinalReport, SectionGrade
 
 @pytest.mark.asyncio
 async def test_health_check():
@@ -72,8 +73,6 @@ def test_agent_initialization():
     system_prompts = "".join(agent._system_prompts)
     assert "technical recruiter" in system_prompts
 
-import importlib
-
 def test_cors_production_requires_domain(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.delenv("DOMAIN", raising=False)
@@ -98,7 +97,27 @@ async def test_transcript_rejects_invalid_payload():
 async def test_report_endpoint_rate_limited():
     # Verify rate limit decorator is present (structural test)
     from api.main import app as test_app
-    routes = {r.path: r for r in test_app.routes if hasattr(r, 'path')}
     # The rate limit is applied via decorator — verify endpoint exists
     report_routes = [r for r in test_app.routes if hasattr(r, 'path') and r.path == "/report/{session_id}"]
     assert len(report_routes) > 0
+
+
+@pytest.mark.asyncio
+async def test_report_stream_returns_report():
+    session_id = "stream-test-1"
+    mock_report = FinalReport(
+        candidate_name="Test User",
+        overall_score=75,
+        section_grades=[SectionGrade(section_name="Technical", score=8, comments="Good technical skills")],
+        strengths=["Python", "Problem solving"],
+        weaknesses=["Communication"],
+        recommendation="Hire",
+        summary="Strong technical candidate."
+    )
+    main_module.reports[session_id] = mock_report
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.get(f"/report-stream/{session_id}")
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers["content-type"]
+    assert "Test User" in response.text

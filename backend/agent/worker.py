@@ -60,6 +60,7 @@ async def generate_and_save_report(context: InterviewContext, session_id: str):
         return
     context.report_generated = True
 
+    backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
     transcript_text = "\n".join(f"{e['speaker']}: {e['text']}" for e in context.transcript) if context.transcript else "No transcript available."
     logger.info(f"Generating report from transcript ({len(context.transcript)} entries)")
 
@@ -84,7 +85,6 @@ async def generate_and_save_report(context: InterviewContext, session_id: str):
         )
 
     try:
-        backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 f"{backend_url}/report/{session_id}",
@@ -100,7 +100,6 @@ async def generate_and_save_report(context: InterviewContext, session_id: str):
         sentry_sdk.capture_exception(e)
 
     try:
-        backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
         async with httpx.AsyncClient() as client:
             await client.post(
                 f"{backend_url}/transcript/{session_id}",
