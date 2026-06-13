@@ -59,6 +59,7 @@ MAX_PDF_SIZE = 10 * 1024 * 1024  # 10 MB
 plans: dict[str, InterviewPlan] = {}
 reports: dict[str, FinalReport] = {}
 _sse_connections: dict[str, int] = {}
+_sse_locks: dict[str, asyncio.Lock] = {}
 MAX_SSE_PER_SESSION = 3
 
 
@@ -70,10 +71,9 @@ def sanitize_name(name: str) -> str:
     # Strip unclosed dangerous tags and everything after them
     name = re.sub(r'<(script|style|iframe|object|embed)[^>]*>.*', '', name, flags=re.IGNORECASE | re.DOTALL)
     name = re.sub(r'<[^>]+>', '', name)
-    name = html.escape(name)
     name = name[:100]
     name = re.sub(r'\s+', ' ', name).strip()
-    return name
+    return name or "Unknown"
 
 
 @app.post("/upload", response_model=UploadResponse)
@@ -213,10 +213,14 @@ async def download_artifact(request: Request, session_id: str, file_type: str):
 @app.get("/report-stream/{session_id}")
 @limiter.limit("10/hour")
 async def report_stream(request: Request, session_id: str):
-    current = _sse_connections.get(session_id, 0)
-    if current >= MAX_SSE_PER_SESSION:
-        raise HTTPException(status_code=429, detail="Too many connections for this session")
-    _sse_connections[session_id] = current + 1
+    # Ensure lock exists
+    lock = _sse_locks.setdefault(session_id, asyncio.Lock())
+
+    async with lock:
+        current = _sse_connections.get(session_id, 0)
+        if current >= MAX_SSE_PER_SESSION:
+            raise HTTPException(status_code=429, detail="Too many connections for this session")
+        _sse_connections[session_id] = current + 1
 
     async def event_generator():
         try:
@@ -230,10 +234,12 @@ async def report_stream(request: Request, session_id: str):
                 await asyncio.sleep(1)
             yield f"data: {json.dumps({'error': 'timeout'})}\n\n"
         finally:
-            new_count = max(0, _sse_connections.get(session_id, 1) - 1)
-            if new_count == 0:
-                _sse_connections.pop(session_id, None)
-            else:
-                _sse_connections[session_id] = new_count
+            async with _sse_locks.get(session_id, asyncio.Lock()):
+                new_count = max(0, _sse_connections.get(session_id, 1) - 1)
+                if new_count == 0:
+                    _sse_connections.pop(session_id, None)
+                    _sse_locks.pop(session_id, None)
+                else:
+                    _sse_connections[session_id] = new_count
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

@@ -274,7 +274,14 @@ function InterviewInner({ sessionId, candidateName = "Candidate", onInterviewEnd
     if (hasEnded && endedOpen) {
       const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
       const es = new EventSource(`${API_BASE}/report-stream/${sessionId}`);
+      
+      const timeout = setTimeout(() => {
+        es.close();
+        setReportError("Report generation timed out. The interview may have been too short for a meaningful report.");
+      }, 120_000);
+
       es.onmessage = (e) => {
+        clearTimeout(timeout);
         const data = JSON.parse(e.data);
         if (data.error) {
           setReportError("Report generation timed out. The interview may have been too short for a meaningful report.");
@@ -284,9 +291,14 @@ function InterviewInner({ sessionId, candidateName = "Candidate", onInterviewEnd
         es.close();
       };
       es.onerror = () => {
+        clearTimeout(timeout);
+        es.close();
+        setReportError("Connection lost. Please try again.");
+      };
+      return () => {
+        clearTimeout(timeout);
         es.close();
       };
-      return () => es.close();
     }
   }, [roomState, hasConnected, hasEnded, endedOpen, sessionId, onInterviewEnd]);
 

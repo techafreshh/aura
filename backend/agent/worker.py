@@ -54,11 +54,14 @@ class InterviewContext:
     report_generated: bool = False
 
 
+_report_lock = asyncio.Lock()
+
 async def generate_and_save_report(context: InterviewContext, session_id: str):
     """Generate report from transcript and POST it to the backend."""
-    if context.report_generated:
-        return
-    context.report_generated = True
+    async with _report_lock:
+        if context.report_generated:
+            return
+        context.report_generated = True
 
     backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
     transcript_text = "\n".join(f"{e['speaker']}: {e['text']}" for e in context.transcript) if context.transcript else "No transcript available."
