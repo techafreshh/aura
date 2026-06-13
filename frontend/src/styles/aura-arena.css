@@ -266,6 +266,14 @@
   .aura-arena-page .dock-btn { height: 40px; min-width: 40px; padding: 0 10px; }
 }
 
+/* Timer warning states */
+.aura-arena-page .timer-warning { color: #f59e0b; }
+.aura-arena-page .timer-critical { color: #ef4444; animation: aura-arena-timer-pulse 1s infinite; }
+@keyframes aura-arena-timer-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .aura-arena-page *, .aura-arena-page *::before, .aura-arena-page *::after {
     animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important;
