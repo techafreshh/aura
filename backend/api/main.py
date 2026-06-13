@@ -65,7 +65,10 @@ MAX_SSE_PER_SESSION = 3
 def sanitize_name(name: str) -> str:
     if not isinstance(name, str):
         return "Unknown"
+    # Strip dangerous tag pairs (with content)
     name = re.sub(r'<(script|style|iframe|object|embed)[^>]*>.*?</\1>', '', name, flags=re.IGNORECASE | re.DOTALL)
+    # Strip unclosed dangerous tags and everything after them
+    name = re.sub(r'<(script|style|iframe|object|embed)[^>]*>.*', '', name, flags=re.IGNORECASE | re.DOTALL)
     name = re.sub(r'<[^>]+>', '', name)
     name = html.escape(name)
     name = name[:100]
@@ -218,6 +221,8 @@ async def report_stream(request: Request, session_id: str):
     async def event_generator():
         try:
             for _ in range(120):  # 2 min timeout, check every 1s
+                if await request.is_disconnected():
+                    return
                 report = reports.get(session_id)
                 if report:
                     yield f"data: {json.dumps(report.model_dump())}\n\n"
@@ -225,6 +230,10 @@ async def report_stream(request: Request, session_id: str):
                 await asyncio.sleep(1)
             yield f"data: {json.dumps({'error': 'timeout'})}\n\n"
         finally:
-            _sse_connections[session_id] = max(0, _sse_connections.get(session_id, 1) - 1)
+            new_count = max(0, _sse_connections.get(session_id, 1) - 1)
+            if new_count == 0:
+                _sse_connections.pop(session_id, None)
+            else:
+                _sse_connections[session_id] = new_count
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

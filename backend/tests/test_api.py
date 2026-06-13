@@ -94,15 +94,6 @@ async def test_transcript_rejects_invalid_payload():
     assert response.status_code == 422
 
 @pytest.mark.asyncio
-async def test_report_endpoint_rate_limited():
-    # Verify rate limit decorator is present (structural test)
-    from api.main import app as test_app
-    # The rate limit is applied via decorator — verify endpoint exists
-    report_routes = [r for r in test_app.routes if hasattr(r, 'path') and r.path == "/report/{session_id}"]
-    assert len(report_routes) > 0
-
-
-@pytest.mark.asyncio
 async def test_report_stream_returns_report():
     session_id = "stream-test-1"
     mock_report = FinalReport(

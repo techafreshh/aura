@@ -10,7 +10,6 @@ import {
   useTrackVolume,
   useMultibandTrackVolume,
 } from "@livekit/components-react";
-import { getReport } from "@/api/client";
 import { useState, useEffect, useRef } from "react";
 import { Track, ConnectionState, type LocalAudioTrack } from "livekit-client";
 import "@/styles/aura-arena.css";
