@@ -1,149 +1,74 @@
-# Code Review: PR #7 — fix: harden API security, validation, and report reliability
+# Code Review: PR #7 (Re-review)
 
 ## Metadata
 
 | Field | Value |
 |-------|-------|
-| **Scope** | PR #7 |
+| **Scope** | PR #7 — `fix: harden API security, validation, and report reliability` |
 | **PR Number** | 7 |
-| **Branch** | feature/bug-fixes-improvements |
-| **Base** | main |
+| **Branch** | `feature/bug-fixes-improvements` |
+| **Base** | `main` |
 | **Author** | techafreshh |
 | **Date** | 2026-06-13 |
-| **Gate** | high |
+| **Gate** | high (default) |
 | **Recommendation** | NEEDS WORK |
 
 ## Summary
 
-This PR adds API security hardening (XSS sanitization, CORS lockdown, rate limiting, input validation), improves worker report reliability with fallback reports and granular error handling, and replaces frontend polling with SSE for report delivery. The changes are well-structured and address real security/reliability gaps. Two high-severity issues need fixing before merge.
+Re-review of PR #7 after updates addressed findings from the first review. The PR now includes SSE client disconnect handling, proper connection locking, unclosed tag stripping in `sanitize_name`, removed unused imports, and a `_report_lock` for thread safety. However, 2 test failures and 1 lint error were introduced by incomplete test updates after `sanitize_name` behavior changed.
 
 ## Issues Found
 
 ### Critical
 
-None
+None.
 
 ### High Priority
 
-#### H1 — SSE connection counter race condition (`backend/api/main.py:235-242`)
-
-The `_sse_connections` dict is decremented in the `finally` block of each SSE generator coroutine. When multiple SSE clients for the same session disconnect concurrently, each coroutine reads-then-writes `_sse_connections[session_id]` without synchronization. Two concurrent decrements can both read the same value, causing the counter to drift and never reach zero (leaking the entry) or underflow.
-
-**Current code:**
-```python
-finally:
-    new_count = max(0, _sse_connections.get(session_id, 1) - 1)
-    if new_count == 0:
-        _sse_connections.pop(session_id, None)
-    else:
-        _sse_connections[session_id] = new_count
-```
-
-**Recommendation:** Use an `asyncio.Lock` keyed per session, or switch to a simpler pattern with `asyncio.Semaphore(MAX_SSE_PER_SESSION)` that handles cleanup atomically. At minimum, wrap the read-modify-write in a lock:
+**1. `test_sanitize_escapes_special_chars` fails — `html.escape` removed but test not updated**
+`backend/tests/test_sanitize.py:11` — The PR removed `html.escape()` from `sanitize_name` (good — names shouldn't be HTML-escaped), but the test still expects `&amp;`:
 
 ```python
-_sse_locks: dict[str, asyncio.Lock] = {}
-
-async def event_generator():
-    lock = _sse_locks.setdefault(session_id, asyncio.Lock())
-    try:
-        # ...yield events...
-    finally:
-        async with lock:
-            new_count = max(0, _sse_connections.get(session_id, 1) - 1)
-            if new_count == 0:
-                _sse_connections.pop(session_id, None)
-                _sse_locks.pop(session_id, None)
-            else:
-                _sse_connections[session_id] = new_count
+# Test expects (wrong):
+assert sanitize_name("Tom & Jerry") == "Tom &amp; Jerry"
+# Actual result:
+assert sanitize_name("Tom & Jerry") == "Tom & Jerry"  # correct behavior
 ```
 
-#### H2 — EventSource has no error handling or reconnection (`frontend/src/components/voice/InterviewAgent.tsx:274-289`)
-
-The current `onerror` handler silently closes the EventSource with no user feedback or retry logic. If the SSE connection drops transiently (network hiccup, proxy timeout), the user sees the "Generating the candidate report…" overlay indefinitely with no timeout and no error message. The previous polling implementation had a 90-second timeout — this SSE version has none.
-
-**Current code:**
-```typescript
-es.onerror = () => {
-  es.close();
-};
+**Fix**: Update the test:
+```python
+def test_sanitize_escapes_special_chars():
+    assert sanitize_name("Tom & Jerry") == "Tom & Jerry"
 ```
 
-**Recommendation:** Add a client-side timeout (e.g., 120s to match the server) and surface errors to the user:
+---
 
-```typescript
-const timeout = setTimeout(() => {
-  es.close();
-  setReportError("Report generation timed out. The interview may have been too short for a meaningful report.");
-}, 120_000);
+**2. `test_sanitize_empty_string` fails — `sanitize_name` now returns `"Unknown"` for empty input**
+`backend/tests/test_sanitize.py:23` — The PR added `return name or "Unknown"` at the end of `sanitize_name`, converting empty strings to `"Unknown"`. The test expects `""`:
 
-es.onerror = () => {
-  clearTimeout(timeout);
-  es.close();
-  setReportError("Connection lost. Please try again.");
-};
+```python
+# Test expects (wrong):
+assert sanitize_name("") == ""
+# Actual result:
+assert sanitize_name("") == "Unknown"  # due to `return name or "Unknown"`
+```
 
-es.onmessage = (e) => {
-  clearTimeout(timeout);
-  // ...existing handler...
-};
+**Fix**: Update the test:
+```python
+def test_sanitize_empty_string():
+    assert sanitize_name("") == "Unknown"
 ```
 
 ### Medium Priority
 
-#### M1 — `sanitize_name` HTML-encodes for JSON responses (`backend/api/main.py:62-72`)
+**3. Unused `import html` in `api/main.py`**
+`backend/api/main.py:5` — The `import html` statement is now unused since `html.escape()` was removed from `sanitize_name`. This produces a F401 lint error.
 
-`sanitize_name` applies `html.escape()`, converting `&` to `&amp;`, `<` to `&lt;`, etc. This is appropriate if the name is rendered in HTML, but the name travels through JSON (`UploadResponse` → axios → React). The frontend renders it via JSX (`{plan.candidate_name}`), which auto-escapes HTML entities. This means a name like "Tom & Jerry" becomes "Tom &amp; Jerry" in the UI — double-encoded.
-
-**Recommendation:** Strip dangerous HTML tags but skip `html.escape()` since the name is consumed as JSON data, not raw HTML. If the name must be HTML-safe for a specific context, escape at the point of rendering, not at the API boundary:
-
-```python
-def sanitize_name(name: str) -> str:
-    if not isinstance(name, str):
-        return "Unknown"
-    name = re.sub(r'<(script|style|iframe|object|embed)[^>]*>.*?</\1>', '', name, flags=re.IGNORECASE | re.DOTALL)
-    name = re.sub(r'<(script|style|iframe|object|embed)[^>]*>.*', '', name, flags=re.IGNORECASE | re.DOTALL)
-    name = re.sub(r'<[^>]+>', '', name)
-    name = name[:100]
-    name = re.sub(r'\s+', ' ', name).strip()
-    return name or "Unknown"
-```
-
-#### M2 — Report generation guard is not atomic (`backend/agent/worker.py:67-69`)
-
-`context.report_generated` is a plain boolean checked and set non-atomically. If `on_shutdown` fires while `on_participant_left`'s `_finalize` is between the check and the set (requiring an async context switch at the `await`), both paths could generate reports. In practice this is unlikely since `on_shutdown` awaits the report task, but the guard should use `asyncio.Lock` for correctness:
-
-```python
-_report_lock = asyncio.Lock()
-
-async def generate_and_save_report(context, session_id):
-    async with _report_lock:
-        if context.report_generated:
-            return
-        context.report_generated = True
-    # ...generate and save...
-```
+**Fix**: Remove `import html` from line 5.
 
 ### Suggestions
 
-#### S1 — Reuse HTTP client for report + transcript saves (`backend/agent/worker.py:82-101`)
-
-Two separate `httpx.AsyncClient()` instances are created for the report POST and transcript POST. These could share a single client:
-
-```python
-async with httpx.AsyncClient() as client:
-    resp = await client.post(f"{backend_url}/report/{session_id}", json=report.model_dump())
-    # ...
-    await client.post(f"{backend_url}/transcript/{session_id}", json={...})
-```
-
-#### S2 — SSE test only covers pre-populated report (`backend/tests/test_api.py:94-114`)
-
-`test_report_stream_returns_report` sets the report in memory before requesting the SSE stream, so it only tests the "report already exists" path. Add a test that starts the SSE stream first, then sets the report, verifying the polling behavior.
-
-#### S3 — Consider `asyncio.Lock` for `_sse_connections` access during increment too
-
-The initial check+increment at the top of `report_stream` has the same TOCTOU pattern as the decrement. Two requests could both read `current < MAX_SSE_PER_SESSION` and both pass the check.
+None — all previous review suggestions have been addressed.
 
 ## Issue Count
 
@@ -151,38 +76,42 @@ The initial check+increment at the top of `report_stream` has the same TOCTOU pa
 |----------|-------|---------------|
 | Critical | 0 | No |
 | High | 2 | Yes |
-| Medium | 2 | No |
-| Suggestions | 3 | No |
+| Medium | 1 | No |
+| Suggestions | 0 | No |
 
 ## Validation Results
 
 | Check | Status |
 |-------|--------|
-| Type Check (frontend `tsc -b`) | PASS |
-| Tests (backend pytest, 48 tests) | PASS |
-| Lint (frontend eslint) | PRE-EXISTING FAIL (41 errors, all pre-existing) |
-| Lint (backend ruff) | PRE-EXISTING FAIL (E402 import order in worker.py, pre-existing) |
+| Type Check | PASS (frontend build succeeded) |
+| Lint | FAIL (10 pre-existing E402 in worker.py, 1 new F401 unused `html` in main.py) |
+| Tests | FAIL (46 passed, 2 failed — both test/implementation mismatches) |
 
-## What's Good
+## What's Good — Improvements Since Last Review
 
-- **Fail-safe report generation** — the fallback `FinalReport` on exception is a solid pattern that prevents the user from seeing a blank screen when the LLM errors out.
-- **Separate error handling** for report save vs. transcript save — failures don't cascade.
-- **SSE connection limiting** with `MAX_SSE_PER_SESSION` — prevents resource exhaustion.
-- **Comprehensive sanitize_name tests** covering script injection, tag stripping, length limits, and edge cases.
-- **CORS production lockdown** — fail-fast on missing `DOMAIN` is the right behavior.
-- **PDF size validation** before buffering in memory.
-- **TranscriptPayload schema** replaces raw `dict` — proper input validation.
+- **SSE client disconnect handling**: `request.is_disconnected()` check added to `event_generator()` — prevents resource waste
+- **SSE connection locking**: `_sse_locks` dict with per-session `asyncio.Lock` for thread-safe connection tracking
+- **SSE cleanup**: Properly removes entries from `_sse_connections` and `_sse_locks` when count reaches 0
+- **`sanitize_name` unclosed tags**: Now strips unclosed dangerous tags (`<script>alert('xss')`) and everything after them
+- **Report generation lock**: `_report_lock = asyncio.Lock()` prevents duplicate report generation from concurrent `participant_disconnected` + `on_shutdown` callbacks
+- **Unused imports removed**: `getReport` from InterviewAgent.tsx, `MagicMock` from test_tracing.py
+- **Frontend SSE robustness**: Added 120s client-side timeout, `onerror` handler with user-facing message, proper cleanup
+- **Pre-existing test failures fixed**: All 3 `test_transcript.py` download tests now pass (the `main_module` pattern works)
+- **Test coverage**: 48 tests collected (up from 37), including new sanitize, CORS, transcript validation, and SSE tests
 
 ## Recommendation
 
-**NEEDS WORK** — Two high-severity issues block merge:
-1. Fix the SSE connection counter race condition (H1)
-2. Add timeout and error handling to the frontend EventSource (H2)
+Three small fixes needed:
 
-The medium issues (double-encoding, non-atomic guard) should also be addressed but aren't blocking.
+1. Update `test_sanitize_escapes_special_chars` to expect `"Tom & Jerry"` (no HTML escaping)
+2. Update `test_sanitize_empty_string` to expect `"Unknown"` (matches implementation)
+3. Remove unused `import html` from `backend/api/main.py`
 
 ## Audit Trail
 
 | Artifact | Path |
 |----------|------|
-| This Review | `.agents/reviews/pr-7-review.md` |
+| Plan | `.agents/plans/completed/pr7-review-fixes.plan.md` |
+| Implementation Report | `.agents/reports/pr7-review-fixes-report.md` |
+| Previous Review | `.agents/reviews/pr-7-review.md` |
+| This Review | `.agents/reviews/pr-7-review.md` (updated) |

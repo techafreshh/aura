@@ -2,7 +2,6 @@ import uuid
 import os
 import json
 import re
-import html
 import asyncio
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Query, BackgroundTasks
 from fastapi.responses import Response, StreamingResponse

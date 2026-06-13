@@ -8,7 +8,7 @@ def test_sanitize_strips_script_content():
 
 
 def test_sanitize_escapes_special_chars():
-    assert sanitize_name("Tom & Jerry") == "Tom &amp; Jerry"
+    assert sanitize_name("Tom & Jerry") == "Tom & Jerry"
 
 
 def test_sanitize_limits_length():
@@ -20,7 +20,7 @@ def test_sanitize_normalizes_whitespace():
 
 
 def test_sanitize_empty_string():
-    assert sanitize_name("") == ""
+    assert sanitize_name("") == "Unknown"
 
 
 def test_sanitize_strips_style_tags():

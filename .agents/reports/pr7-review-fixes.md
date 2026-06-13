@@ -1,4 +1,4 @@
-# Review Fix Report
+# Review Fix Report (Round 2)
 
 **Review**: `.agents/reviews/pr-7-review.md`
 **Branch**: `feature/bug-fixes-improvements`
@@ -7,42 +7,33 @@
 ## Original Review Summary
 
 - **Recommendation**: NEEDS WORK
-- **Total Issues**: 7
-- **Critical**: 0 | **High**: 2 | **Medium**: 2 | **Suggestions**: 3
+- **Total Issues**: 3
+- **Critical**: 0 | **High**: 2 | **Medium**: 1 | **Suggestions**: 0
 
 ## Fixes Applied
 
 | # | Severity | Issue | File | Status | Notes |
 |---|----------|-------|------|--------|-------|
-| 1 | High | SSE connection counter race condition | `backend/api/main.py` | ✅ FIXED | Added per-session `asyncio.Lock` |
-| 2 | High | EventSource has no error handling or reconnection | `frontend/src/components/voice/InterviewAgent.tsx` | ✅ FIXED | Added 120s timeout and error surfacing |
-| 3 | Medium | `sanitize_name` HTML-encodes for JSON responses | `backend/api/main.py` | ✅ FIXED | Removed `html.escape()` |
-| 4 | Medium | Report generation guard is not atomic | `backend/agent/worker.py` | ✅ FIXED | Added `asyncio.Lock` |
-| 5 | Suggestion | Reuse HTTP client | `backend/agent/worker.py` | ⏭️ SKIPPED | Suggestion |
-| 6 | Suggestion | SSE test coverage | `backend/tests/test_api.py` | ⏭️ SKIPPED | Suggestion |
-| 7 | Suggestion | `_sse_connections` increment TOCTOU | `backend/api/main.py` | ⏭️ SKIPPED | Suggestion (but partially addressed by H1 lock) |
+| 1 | High | `test_sanitize_escapes_special_chars` fails | `backend/tests/test_sanitize.py` | ✅ FIXED | Updated assertion to expect `"Tom & Jerry"` |
+| 2 | High | `test_sanitize_empty_string` fails | `backend/tests/test_sanitize.py` | ✅ FIXED | Updated assertion to expect `"Unknown"` |
+| 3 | Medium | Unused `import html` | `backend/api/main.py` | ✅ FIXED | Removed unused import |
 
 ## Validation Results
 
 | Check | Result |
 |-------|--------|
-| Type check | ✅ (frontend `tsc -b`) |
-| Build | ✅ (frontend `vite build`) |
-| Lint | ✅ (pre-existing failures only) |
 | Tests | ✅ (48 passed) |
 
 ## Remaining Issues
 
-All Critical and High issues resolved. Suggestions were skipped as per the skill instructions (unless explicitly requested).
+All issues resolved.
 
 ## Files Changed
 
 | File | Lines Changed |
 |------|---------------|
-| `backend/api/main.py` | +45/-15 |
-| `backend/agent/worker.py` | +8/-3 |
-| `frontend/src/components/voice/InterviewAgent.tsx` | +86/-110 |
-| `.agents/reviews/pr-7-review.md` | (updated review metadata) |
+| `backend/tests/test_sanitize.py` | +4/-4 |
+| `backend/api/main.py` | +1/-1 |
 
 ## Artifacts
 
