@@ -82,7 +82,9 @@ function InterviewInner({ sessionId, candidateName = "Candidate", onInterviewEnd
   const [hasEnded, setHasEnded] = useState(false);
   const [endedOpen, setEndedOpen] = useState(false);
   const [muted, setMuted] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
+  const TOTAL_SECONDS = 10 * 60;
+  const WARNING_SECONDS = 2 * 60;
+  const [remaining, setRemaining] = useState(TOTAL_SECONDS);
   const [transcriptWidth, setTranscriptWidth] = useState(420);
 
   const roomState = useConnectionState();
@@ -241,11 +243,13 @@ function InterviewInner({ sessionId, candidateName = "Candidate", onInterviewEnd
   // Timer
   useEffect(() => {
     if (!hasConnected) return;
-    const i = setInterval(() => setElapsed((e) => e + 1), 1000);
+    const i = setInterval(() => setRemaining((r) => Math.max(0, r - 1)), 1000);
     return () => clearInterval(i);
   }, [hasConnected]);
-  const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
-  const ss = String(elapsed % 60).padStart(2, "0");
+  const mm = String(Math.floor(remaining / 60)).padStart(2, "0");
+  const ss = String(remaining % 60).padStart(2, "0");
+  const isWarning = remaining <= WARNING_SECONDS && remaining > 0;
+  const isCritical = remaining <= 30 && remaining > 0;
 
   // Mute toggle
   const toggleMute = async () => {
@@ -351,7 +355,14 @@ function InterviewInner({ sessionId, candidateName = "Candidate", onInterviewEnd
 
         <div className="top-right">
           <MicSelector />
-          <div className="timer" aria-label="Session elapsed time">{mm}:{ss}</div>
+          <div className={`timer ${isWarning ? 'timer-warning' : ''} ${isCritical ? 'timer-critical' : ''}`}
+               aria-label={`${mm}:${ss} remaining`}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+            <span>{mm}:{ss}</span>
+          </div>
           <div className="session-id" aria-label="Session identifier">
             <strong>SID</strong> · {sidShort}
           </div>

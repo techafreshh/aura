@@ -52,6 +52,7 @@ class InterviewContext:
     transcript: list = field(default_factory=list)
     start_time: float = 0.0
     report_generated: bool = False
+    wrap_up_triggered: bool = False
 
 
 _report_lock = asyncio.Lock()
@@ -206,11 +207,15 @@ async def entrypoint(ctx: JobContext):
 
     # Generate report immediately when participant disconnects, then shut down the worker
     report_task = None
+    timer_task = None
 
     @ctx.room.on("participant_disconnected")
     def on_participant_left(participant):
-        nonlocal report_task
+        nonlocal report_task, timer_task
         logger.info(f"Participant {participant.identity} disconnected. Triggering report generation and shutdown...")
+
+        if timer_task and not timer_task.done():
+            timer_task.cancel()
 
         async def _finalize():
             try:
@@ -245,6 +250,10 @@ async def entrypoint(ctx: JobContext):
         "Rely on your own judgment for natural follow-ups — do NOT call evaluate_answer after every response. "
         "Only use evaluate_answer when you're genuinely unsure what to ask next or want to change topics. "
         "IMPORTANT: Never share scores, feedback, or evaluation results with the candidate. "
+        "The interview has a 10-minute time limit. "
+        "Aim to cover 3-4 key topics in depth rather than rushing through all questions. "
+        "When you receive a wrap-up signal or notice time running short, ask one final "
+        "summarizing question and then call end_interview. "
         "When the interview is complete (after 3-5 questions), use the end_interview tool. "
         "Keep your responses concise and wait for the candidate to finish speaking before responding."
     )
@@ -255,6 +264,47 @@ async def entrypoint(ctx: JobContext):
     )
 
     await session.start(agent, room=ctx.room)
+
+    # Background timer for 10-minute cap
+    async def time_cap_timer():
+        WRAP_UP_SECONDS = 8 * 60    # 8 minutes — inject wrap-up instruction
+        HARD_CAP_SECONDS = 10 * 60  # 10 minutes — force disconnect
+
+        while not workflow.context.report_generated:
+            elapsed = time.time() - workflow.context.start_time
+
+            # Hard cap — disconnect immediately
+            if elapsed >= HARD_CAP_SECONDS:
+                logger.info("Hard time cap (10 min). Disconnecting.")
+                try:
+                    session.say(
+                        "I'm sorry, but we've reached the end of our allotted time. "
+                        "Thank you for your participation — your report will be generated shortly."
+                    )
+                except Exception:
+                    pass
+                await asyncio.sleep(3)  # Let TTS finish
+                await generate_and_save_report(workflow.context, session_id)
+                ctx.shutdown(reason="time_cap_reached")
+                return
+
+            # Soft wrap-up at 8 minutes
+            if elapsed >= WRAP_UP_SECONDS and not workflow.context.wrap_up_triggered:
+                workflow.context.wrap_up_triggered = True
+                logger.info("Wrap-up phase triggered (8 min).")
+                try:
+                    session.say(
+                        "We have about two minutes remaining. "
+                        "Please wrap up your current answer, and I'll ask one final question."
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to inject wrap-up message: {e}")
+                await asyncio.sleep(2)
+
+            await asyncio.sleep(5)  # Check every 5 seconds
+
+    timer_task = asyncio.create_task(time_cap_timer())
+
     session.say(f"Hello {plan.candidate_name}! I am your AI interviewer today. How are you doing?", allow_interruptions=True)
 
 
