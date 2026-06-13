@@ -24,7 +24,7 @@ from livekit.agents import (
 )
 from livekit.agents.telemetry import set_tracer_provider
 from livekit.plugins import silero
-from models.schemas import InterviewPlan
+from models.schemas import InterviewPlan, FinalReport
 from agent.evaluator import evaluator_agent
 from agent.reporter import reporter_agent
 from utils.tracing import setup_langfuse
@@ -54,42 +54,63 @@ class InterviewContext:
     report_generated: bool = False
 
 
+_report_lock = asyncio.Lock()
+
 async def generate_and_save_report(context: InterviewContext, session_id: str):
     """Generate report from transcript and POST it to the backend."""
-    if context.report_generated:
-        return
-    context.report_generated = True
+    async with _report_lock:
+        if context.report_generated:
+            return
+        context.report_generated = True
 
+    backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
     transcript_text = "\n".join(f"{e['speaker']}: {e['text']}" for e in context.transcript) if context.transcript else "No transcript available."
     logger.info(f"Generating report from transcript ({len(context.transcript)} entries)")
 
     try:
         result = await reporter_agent.run(
-            f"Candidate Name: {context.plan.candidate_name}\n"
+            f"Candidate: {context.plan.candidate_name}\n"
             f"Skills: {', '.join(context.plan.extracted_skills)}\n"
             f"Transcript:\n{transcript_text}"
         )
         report = result.output
-        logger.info(f"Report generated with score: {report.overall_score}")
+    except Exception as e:
+        logger.error(f"Report generation failed for {session_id}: {e}", exc_info=True)
+        sentry_sdk.capture_exception(e)
+        report = FinalReport(
+            candidate_name=context.plan.candidate_name,
+            overall_score=0,
+            section_grades=[],
+            strengths=[],
+            weaknesses=["Report generation encountered an error."],
+            recommendation="Hold",
+            summary="An error occurred during report generation. Please review the transcript manually."
+        )
 
-        backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
+    try:
         async with httpx.AsyncClient() as client:
-            response = await client.post(
+            resp = await client.post(
                 f"{backend_url}/report/{session_id}",
                 json=report.model_dump()
             )
-            if response.status_code == 200:
-                logger.info("Successfully saved report to backend.")
+            if resp.status_code != 200:
+                logger.error(f"Report save failed: {resp.status_code} {resp.text}")
+                sentry_sdk.capture_message(f"Report save failed: {resp.status_code}")
             else:
-                logger.error(f"Failed to save report: {response.text}")
+                logger.info("Successfully saved report to backend.")
+    except Exception as e:
+        logger.error(f"HTTP error saving report for {session_id}: {e}", exc_info=True)
+        sentry_sdk.capture_exception(e)
 
-            # POST transcript to backend
+    try:
+        async with httpx.AsyncClient() as client:
             await client.post(
                 f"{backend_url}/transcript/{session_id}",
-                json={"candidate_name": context.plan.candidate_name, "entries": context.transcript},
+                json={"candidate_name": context.plan.candidate_name, "entries": context.transcript}
             )
     except Exception as e:
-        logger.error(f"Error generating/saving report: {e}")
+        logger.error(f"Transcript save failed for {session_id}: {e}", exc_info=True)
+        sentry_sdk.capture_exception(e)
 
 
 class InterviewWorkflow:
@@ -98,17 +119,22 @@ class InterviewWorkflow:
         self.session = session
         self.session_id = session_id
 
-    @llm.function_tool(description="Evaluate the candidate's answer when you're unsure what to ask next or want to change topics. Do NOT call after every answer.")
-    async def evaluate_answer(self, response_summary: str) -> str:
-        logger.info(f"Evaluating answer: {response_summary}")
-        prompt = f"Skills to look for: {self.context.plan.extracted_skills}\nCandidate's Answer: {response_summary}"
+    @llm.function_tool(description=(
+        "Evaluate the candidate's last answer. Pass the candidate's EXACT words as 'candidate_response'. "
+        "Do NOT summarize or paraphrase. Only call when you need help deciding what to ask next."
+    ))
+    async def evaluate_answer(self, candidate_response: str) -> str:
+        logger.info(f"Evaluating answer: {candidate_response}")
+        prompt = (
+            f"Skills to look for: {self.context.plan.extracted_skills}\n"
+            f"Candidate's Exact Response: {candidate_response}"
+        )
         try:
-            result = await evaluator_agent.run(prompt)
-            eval_result = result.output
-            if eval_result.suggested_follow_up:
-                return f"Ask this follow-up: {eval_result.suggested_follow_up}"
+            eval_result = await evaluator_agent.run(prompt)
+            if eval_result.output.suggested_follow_up:
+                return f"Ask this follow-up: {eval_result.output.suggested_follow_up}"
         except Exception as e:
-            logger.warning(f"evaluate_answer failed: {e}")
+            logger.warning(f"Evaluation failed: {e}")
         return "The answer was satisfactory. Move on to the next topic."
 
     @llm.function_tool(description="End the interview and generate a final report. Call this when you have asked enough questions.")

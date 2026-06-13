@@ -2,7 +2,8 @@ import pytest
 import json
 from unittest.mock import patch, MagicMock
 from httpx import AsyncClient, ASGITransport
-from api.main import app, reports
+import api.main as main_module
+from api.main import app
 from models.schemas import FinalReport, SectionGrade
 
 
@@ -31,7 +32,7 @@ async def test_save_transcript_returns_200():
 @pytest.mark.asyncio
 async def test_download_transcript_returns_file():
     session_id = "sess-dl1"
-    reports[session_id] = _sample_report()
+    main_module.reports[session_id] = _sample_report()
     transcript_data = json.dumps([{"speaker": "Candidate", "text": "Hi", "timestamp_s": 1.5}]).encode()
 
     with patch("api.main.get_artifact", return_value=transcript_data):
@@ -45,7 +46,7 @@ async def test_download_transcript_returns_file():
 @pytest.mark.asyncio
 async def test_download_pdf_returns_file():
     session_id = "sess-dl2"
-    reports[session_id] = _sample_report()
+    main_module.reports[session_id] = _sample_report()
 
     with patch("api.main.get_artifact", return_value=b"%PDF-fake"):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
@@ -57,7 +58,7 @@ async def test_download_pdf_returns_file():
 @pytest.mark.asyncio
 async def test_download_invalid_file_type_returns_400():
     session_id = "sess-dl3"
-    reports[session_id] = _sample_report()
+    main_module.reports[session_id] = _sample_report()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.get(f"/download/{session_id}/invalid")
@@ -74,7 +75,7 @@ async def test_download_missing_session_returns_404():
 @pytest.mark.asyncio
 async def test_download_missing_artifact_returns_404():
     session_id = "sess-dl4"
-    reports[session_id] = _sample_report()
+    main_module.reports[session_id] = _sample_report()
 
     with patch("api.main.get_artifact", return_value=None):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:

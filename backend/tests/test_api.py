@@ -1,9 +1,11 @@
+import importlib
 import pytest
 import os
 from unittest.mock import patch
 from httpx import AsyncClient, ASGITransport
-from api.main import app, plans
-from models.schemas import InterviewPlan
+import api.main as main_module
+from api.main import app
+from models.schemas import InterviewPlan, FinalReport, SectionGrade
 
 @pytest.mark.asyncio
 async def test_health_check():
@@ -52,7 +54,7 @@ async def test_get_plan_success():
         extracted_skills=["Python"],
         question_bank=["What is Python?"]
     )
-    plans[session_id] = mock_plan
+    main_module.plans[session_id] = mock_plan
     
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.get(f"/plan/{session_id}")
@@ -70,3 +72,43 @@ def test_agent_initialization():
     # Check if the system prompt is set correctly in the private attribute
     system_prompts = "".join(agent._system_prompts)
     assert "technical recruiter" in system_prompts
+
+def test_cors_production_requires_domain(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("DOMAIN", raising=False)
+    import api.main as main_module
+    with pytest.raises(RuntimeError, match="DOMAIN"):
+        importlib.reload(main_module)
+
+def test_cors_production_uses_domain(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("DOMAIN", "https://example.com")
+    import api.main as main_module
+    importlib.reload(main_module)
+    # Should not raise
+
+@pytest.mark.asyncio
+async def test_transcript_rejects_invalid_payload():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post("/transcript/test-session", json={"invalid": "payload"})
+    assert response.status_code == 422
+
+@pytest.mark.asyncio
+async def test_report_stream_returns_report():
+    session_id = "stream-test-1"
+    mock_report = FinalReport(
+        candidate_name="Test User",
+        overall_score=75,
+        section_grades=[SectionGrade(section_name="Technical", score=8, comments="Good technical skills")],
+        strengths=["Python", "Problem solving"],
+        weaknesses=["Communication"],
+        recommendation="Hire",
+        summary="Strong technical candidate."
+    )
+    main_module.reports[session_id] = mock_report
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.get(f"/report-stream/{session_id}")
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers["content-type"]
+    assert "Test User" in response.text
