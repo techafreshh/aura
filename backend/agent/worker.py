@@ -55,6 +55,8 @@ async def generate_and_save_report(context: InterviewContext, session_id: str):
         context.report_generated = True
 
     backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
+    worker_api_key = os.getenv("WORKER_API_KEY", "")
+    auth_headers = {"Authorization": f"Bearer {worker_api_key}"} if worker_api_key else {}
     transcript_text = "\n".join(f"{e['speaker']}: {e['text']}" for e in context.transcript) if context.transcript else "No transcript available."
     logger.info(f"Generating report from transcript ({len(context.transcript)} entries)")
 
@@ -82,7 +84,8 @@ async def generate_and_save_report(context: InterviewContext, session_id: str):
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 f"{backend_url}/report/{session_id}",
-                json=report.model_dump()
+                json=report.model_dump(),
+                headers=auth_headers,
             )
             if resp.status_code != 200:
                 logger.error(f"Report save failed: {resp.status_code} {resp.text}")
@@ -97,7 +100,8 @@ async def generate_and_save_report(context: InterviewContext, session_id: str):
         async with httpx.AsyncClient() as client:
             await client.post(
                 f"{backend_url}/transcript/{session_id}",
-                json={"candidate_name": context.plan.candidate_name, "entries": context.transcript}
+                json={"candidate_name": context.plan.candidate_name, "entries": context.transcript},
+                headers=auth_headers,
             )
     except Exception as e:
         logger.error(f"Transcript save failed for {session_id}: {e}", exc_info=True)
@@ -149,10 +153,12 @@ async def entrypoint(ctx: JobContext):
     
     # Fetch plan from backend
     plan = None
+    worker_api_key = os.getenv("WORKER_API_KEY", "")
+    plan_headers = {"Authorization": f"Bearer {worker_api_key}"} if worker_api_key else {}
     try:
         async with httpx.AsyncClient() as client:
             logger.info(f"Fetching plan from {backend_url}/plan/{session_id}")
-            response = await client.get(f"{backend_url}/plan/{session_id}")
+            response = await client.get(f"{backend_url}/plan/{session_id}", headers=plan_headers)
             if response.status_code == 200:
                 plan_data = response.json()
                 plan = InterviewPlan(**plan_data)

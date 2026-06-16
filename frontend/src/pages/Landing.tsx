@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useAuth } from '@/contexts/AuthContext'
 import '@/styles/aura-landing.css'
 
 const ORB_STATES = [
@@ -83,6 +84,7 @@ export function Landing() {
   }
 
   const orbStatus = ORB_STATES[orbIdx]
+  const { user, login, logout } = useAuth()
 
   return (
     <div className="aura-landing-page" ref={pageRef}>
@@ -100,12 +102,28 @@ export function Landing() {
             <a href="#stack">Platform</a>
           </nav>
           <div className="nav-cta">
-            <Link to="/interview" className="btn btn-sm btn-primary">
-              Get started
-              <svg className="arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path d="M3 8h10m-4-4 4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </Link>
+            {user ? (
+              <>
+                <Link to="/interview" className="btn btn-sm btn-primary">
+                  Get started
+                  <svg className="arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M3 8h10m-4-4 4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </Link>
+                <button className="btn btn-sm btn-ghost" onClick={logout} style={{ marginLeft: 8 }}>
+                  Sign out
+                </button>
+              </>
+            ) : (
+              <>
+                <button className="btn btn-sm btn-ghost" onClick={() => login('google')}>
+                  Sign in with Google
+                </button>
+                <button className="btn btn-sm btn-primary" onClick={() => login('github')} style={{ marginLeft: 8 }}>
+                  Sign in with GitHub
+                </button>
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -117,12 +135,23 @@ export function Landing() {
             <h1 id="hero-title" className="display">The first interview,<br/><em>automated by intelligence.</em></h1>
             <p className="lede">Scale your hiring with Aura. Real-time voice interviews that probe deeper, evaluate fairer, and report faster — so your team only meets the candidates worth meeting.</p>
             <div className="hero-cta">
-              <Link to="/interview" className="btn btn-lg btn-primary">
-                Start a Mock Interview
-                <svg className="arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <path d="M3 8h10m-4-4 4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </Link>
+              {user ? (
+                <Link to="/interview" className="btn btn-lg btn-primary">
+                  Start a Mock Interview
+                  <svg className="arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M3 8h10m-4-4 4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </Link>
+              ) : (
+                <>
+                  <button className="btn btn-lg btn-primary" onClick={() => login('google')}>
+                    Sign in with Google
+                  </button>
+                  <button className="btn btn-lg btn-ghost" onClick={() => login('github')} style={{ marginLeft: 12 }}>
+                    Sign in with GitHub
+                  </button>
+                </>
+              )}
               <a
                 href="https://github.com/techafreshh/aura"
                 target="_blank"
@@ -362,12 +391,23 @@ export function Landing() {
           <h2 id="cta-title">Meet your next senior interviewer.</h2>
           <p>Upload a resume and run a real voice interview. Walk away with a real transcript and a real report.</p>
           <div className="cta-actions">
-            <Link to="/interview" className="btn btn-lg btn-primary">
-              Start a Mock Interview
-              <svg className="arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path d="M3 8h10m-4-4 4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </Link>
+            {user ? (
+              <Link to="/interview" className="btn btn-lg btn-primary">
+                Start a Mock Interview
+                <svg className="arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M3 8h10m-4-4 4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </Link>
+            ) : (
+              <>
+                <button className="btn btn-lg btn-primary" onClick={() => login('google')}>
+                  Sign in with Google
+                </button>
+                <button className="btn btn-lg btn-ghost" onClick={() => login('github')} style={{ marginLeft: 12 }}>
+                  Sign in with GitHub
+                </button>
+              </>
+            )}
           </div>
         </div>
       </section>

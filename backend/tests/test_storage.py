@@ -2,8 +2,10 @@ import pytest
 from unittest.mock import patch, MagicMock
 from httpx import AsyncClient, ASGITransport
 from api.main import app
-from models.schemas import FinalReport, SectionGrade
+from models.schemas import FinalReport, SectionGrade, InterviewPlan
 from utils.pdf_report import generate_report_pdf
+from db.database import async_session
+from db.crud import create_session, update_session_report
 
 
 def _sample_report() -> FinalReport:
@@ -59,15 +61,29 @@ def test_archive_report_does_not_raise_on_error(mock_minio_cls):
 
     from utils.storage import archive_report
 
-    # Should not raise
     archive_report("sess-3", {}, b"pdf")
 
 
 @pytest.mark.asyncio
 async def test_save_report_returns_200():
+    mock_plan = InterviewPlan(
+        candidate_name="Test User",
+        extracted_skills=["Python"],
+        question_bank=["Q1"],
+    )
     report_data = _sample_report().model_dump()
+
+    async with async_session() as db:
+        session = await create_session(
+            db,
+            user_id="test-user-id",
+            candidate_name="Test User",
+            plan_json=mock_plan.model_dump_json(),
+        )
+        session_id = session.id
+
     with patch("api.main.archive_report"):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-            response = await ac.post("/report/test-session", json=report_data)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers={"Authorization": "Bearer test-token"}) as ac:
+            response = await ac.post(f"/report/{session_id}", json=report_data)
     assert response.status_code == 200
     assert response.json() == {"status": "success"}

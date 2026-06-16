@@ -3,7 +3,7 @@ import os
 import json
 import re
 import asyncio
-from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Query, BackgroundTasks
+from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Query, BackgroundTasks, Depends
 from fastapi.responses import Response, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -16,6 +16,10 @@ from utils.pdf_parser import extract_text_from_pdf
 from utils.storage import archive_report, archive_transcript, get_artifact, archive_pdf
 from utils.tracing import setup_langfuse
 from models.schemas import UploadResponse, InterviewPlan, FinalReport, TranscriptPayload
+from api.deps import get_current_user
+from api.auth import router as auth_router
+from db.crud import create_session, get_session, update_session_report, update_session_transcript
+from db.database import async_session
 
 import sentry_sdk
 
@@ -34,6 +38,8 @@ app = FastAPI(title="AI Interviewer API")
 setup_langfuse()
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+app.include_router(auth_router)
 
 # Add CORS middleware
 env = os.getenv("ENVIRONMENT", "development")
@@ -55,19 +61,21 @@ app.add_middleware(
 
 MAX_PDF_SIZE = 10 * 1024 * 1024  # 10 MB
 
-plans: dict[str, InterviewPlan] = {}
-reports: dict[str, FinalReport] = {}
 _sse_connections: dict[str, int] = {}
 _sse_locks: dict[str, asyncio.Lock] = {}
 MAX_SSE_PER_SESSION = 3
 
 
+@app.on_event("startup")
+async def startup():
+    from db.database import init_db
+    await init_db()
+
+
 def sanitize_name(name: str) -> str:
     if not isinstance(name, str):
         return "Unknown"
-    # Strip dangerous tag pairs (with content)
     name = re.sub(r'<(script|style|iframe|object|embed)[^>]*>.*?</\1>', '', name, flags=re.IGNORECASE | re.DOTALL)
-    # Strip unclosed dangerous tags and everything after them
     name = re.sub(r'<(script|style|iframe|object|embed)[^>]*>.*', '', name, flags=re.IGNORECASE | re.DOTALL)
     name = re.sub(r'<[^>]+>', '', name)
     name = name[:100]
@@ -77,35 +85,39 @@ def sanitize_name(name: str) -> str:
 
 @app.post("/upload", response_model=UploadResponse)
 @limiter.limit("10/hour")
-async def upload_resume(request: Request, file: UploadFile = File(...)):
-    # Validate file type
+async def upload_resume(
+    request: Request,
+    file: UploadFile = File(...),
+    user=Depends(get_current_user),
+):
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
 
     try:
-        # Read file content
         file_bytes = await file.read()
-        
-        # Extract text from PDF
         text = await extract_text_from_pdf(file_bytes)
-        
-        # Run the AI Agent to parse the resume
-        # Generate a unique session ID
+
         session_id = str(uuid.uuid4())
 
         with propagate_attributes(session_id=session_id):
             result = await agent.run(text)
-        
-        # Store the plan in memory
+
         plan = result.output
         plan.candidate_name = sanitize_name(plan.candidate_name) if plan.candidate_name else "Unknown"
-        plans[session_id] = plan
-        
+
+        async with async_session() as db:
+            await create_session(
+                db,
+                user_id=user.id,
+                candidate_name=plan.candidate_name,
+                plan_json=plan.model_dump_json(),
+            )
+
         return UploadResponse(
             session_id=session_id,
-            plan_summary=plan
+            plan_summary=plan,
         )
-        
+
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -114,12 +126,17 @@ async def upload_resume(request: Request, file: UploadFile = File(...)):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
+
 @app.get("/plan/{session_id}", response_model=InterviewPlan)
-async def get_plan(session_id: str):
-    plan = plans.get(session_id)
-    if not plan:
+async def get_plan(session_id: str, request: Request, user=Depends(get_current_user)):
+    async with async_session() as db:
+        session = await get_session(db, session_id)
+
+    if not session:
         raise HTTPException(status_code=404, detail="Interview plan not found for the given session ID.")
-    return plan
+
+    return InterviewPlan.model_validate_json(session.plan_json)
+
 
 @app.get("/token")
 @limiter.limit("5/hour")
@@ -129,8 +146,8 @@ async def get_token(request: Request, session_id: str = Query(..., description="
 
     if not api_key or not api_secret:
         raise HTTPException(
-            status_code=500, 
-            detail="LiveKit credentials are not configured on the server."
+            status_code=500,
+            detail="LiveKit credentials are not configured on the server.",
         )
 
     try:
@@ -145,10 +162,18 @@ async def get_token(request: Request, session_id: str = Query(..., description="
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate token: {str(e)}")
 
+
 @app.post("/report/{session_id}")
 @limiter.limit("30/hour")
-async def save_report(request: Request, session_id: str, report: FinalReport, background_tasks: BackgroundTasks):
-    reports[session_id] = report
+async def save_report(
+    request: Request,
+    session_id: str,
+    report: FinalReport,
+    background_tasks: BackgroundTasks,
+    user=Depends(get_current_user),
+):
+    async with async_session() as db:
+        await update_session_report(db, session_id, report.model_dump_json())
 
     def _archive():
         archive_report(session_id, report.model_dump(), b"")
@@ -156,12 +181,23 @@ async def save_report(request: Request, session_id: str, report: FinalReport, ba
     background_tasks.add_task(_archive)
     return {"status": "success"}
 
+
 @app.get("/report/{session_id}", response_model=FinalReport)
-async def get_report(session_id: str):
-    report = reports.get(session_id)
-    if not report:
+async def get_report(session_id: str, user=Depends(get_current_user)):
+    async with async_session() as db:
+        session = await get_session(db, session_id)
+
+    if not session:
         raise HTTPException(status_code=404, detail="Report not found for the given session ID.")
-    return report
+
+    if user.role != "admin" and session.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not session.report_json:
+        raise HTTPException(status_code=404, detail="Report not yet available.")
+
+    return FinalReport.model_validate_json(session.report_json)
+
 
 @app.get("/health")
 async def health_check():
@@ -170,40 +206,62 @@ async def health_check():
 
 @app.post("/transcript/{session_id}")
 async def save_transcript(session_id: str, payload: TranscriptPayload, background_tasks: BackgroundTasks):
+    transcript_data = json.dumps([e.model_dump() for e in payload.entries])
+
+    async with async_session() as db:
+        await update_session_transcript(db, session_id, transcript_data)
+
     def _archive():
         archive_transcript(
             session_id,
             payload.candidate_name,
-            json.dumps([e.model_dump() for e in payload.entries]).encode()
+            transcript_data.encode(),
         )
     background_tasks.add_task(_archive)
     return {"status": "success"}
 
 
 @app.post("/upload-pdf/{session_id}")
-async def upload_pdf(session_id: str, file: UploadFile = File(...), background_tasks: BackgroundTasks = None):
-    report = reports.get(session_id)
-    if not report:
+async def upload_pdf(
+    session_id: str,
+    file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = None,
+    user=Depends(get_current_user),
+):
+    async with async_session() as db:
+        session = await get_session(db, session_id)
+
+    if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+
+    if user.role != "admin" and session.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
     pdf_bytes = await file.read()
     if len(pdf_bytes) > MAX_PDF_SIZE:
         raise HTTPException(status_code=413, detail="PDF exceeds 10 MB limit")
-    background_tasks.add_task(archive_pdf, session_id, report.candidate_name, pdf_bytes)
+    background_tasks.add_task(archive_pdf, session_id, session.candidate_name, pdf_bytes)
     return {"status": "success"}
 
 
 @app.get("/download/{session_id}/{file_type}")
 @limiter.limit("30/hour")
-async def download_artifact(request: Request, session_id: str, file_type: str):
-    report = reports.get(session_id)
-    if not report:
+async def download_artifact(request: Request, session_id: str, file_type: str, user=Depends(get_current_user)):
+    async with async_session() as db:
+        session = await get_session(db, session_id)
+
+    if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+
+    if user.role != "admin" and session.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
     file_map = {"transcript": ("transcript.json", "application/json"), "pdf": ("report.pdf", "application/pdf")}
     entry = file_map.get(file_type)
     if not entry:
         raise HTTPException(status_code=400, detail="Invalid file type. Use: transcript, pdf")
     filename, content_type = entry
-    data = get_artifact(session_id, report.candidate_name, filename)
+    data = get_artifact(session_id, session.candidate_name, filename)
     if not data:
         raise HTTPException(status_code=404, detail="File not found")
     return Response(content=data, media_type=content_type, headers={"Content-Disposition": f"attachment; filename={filename}"})
@@ -212,7 +270,6 @@ async def download_artifact(request: Request, session_id: str, file_type: str):
 @app.get("/report-stream/{session_id}")
 @limiter.limit("10/hour")
 async def report_stream(request: Request, session_id: str):
-    # Ensure lock exists
     lock = _sse_locks.setdefault(session_id, asyncio.Lock())
 
     async with lock:
@@ -223,11 +280,13 @@ async def report_stream(request: Request, session_id: str):
 
     async def event_generator():
         try:
-            for _ in range(120):  # 2 min timeout, check every 1s
+            for _ in range(120):
                 if await request.is_disconnected():
                     return
-                report = reports.get(session_id)
-                if report:
+                async with async_session() as db:
+                    session = await get_session(db, session_id)
+                if session and session.report_json:
+                    report = FinalReport.model_validate_json(session.report_json)
                     yield f"data: {json.dumps(report.model_dump())}\n\n"
                     return
                 await asyncio.sleep(1)
