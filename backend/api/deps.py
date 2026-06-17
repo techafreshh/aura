@@ -1,21 +1,11 @@
 import os
-import secrets
+import hmac
 from fastapi import Request, HTTPException
 import jwt
 from db.crud import get_user_by_id
 from db.database import async_session
 from db.models import User
-
-_RAW_JWT_SECRET = os.getenv("JWT_SECRET", "")
-if _RAW_JWT_SECRET and _RAW_JWT_SECRET != "change-me-in-production":
-    JWT_SECRET = _RAW_JWT_SECRET
-elif os.getenv("ENVIRONMENT") == "production":
-    raise RuntimeError(
-        "JWT_SECRET must be set to a strong value in production. "
-        "Generate one with: python -c 'import secrets; print(secrets.token_hex(32))'"
-    )
-else:
-    JWT_SECRET = secrets.token_hex(32)
+from utils.config import JWT_SECRET
 
 WORKER_API_KEY = os.getenv("WORKER_API_KEY", "")
 
@@ -33,7 +23,8 @@ async def get_current_user(request: Request) -> User | _WorkerUser:
 
     token = auth_header.removeprefix("Bearer ").strip()
 
-    if WORKER_API_KEY and token == WORKER_API_KEY:
+    # Constant-time comparison avoids leaking key length/content via timing.
+    if WORKER_API_KEY and hmac.compare_digest(token, WORKER_API_KEY):
         return _WorkerUser()
 
     try:

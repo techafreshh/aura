@@ -20,13 +20,14 @@ from api.deps import get_current_user
 from api.auth import router as auth_router
 from db.crud import create_session, get_session, update_session_report, update_session_transcript
 from db.database import async_session
+from utils.config import ENVIRONMENT
 
 import sentry_sdk
 
 sentry_sdk.init(
     dsn=os.getenv("SENTRY_DSN"),
     traces_sample_rate=1.0,
-    environment=os.getenv("ENVIRONMENT", "production"),
+    environment=ENVIRONMENT,
 )
 
 limiter = Limiter(
@@ -42,8 +43,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.include_router(auth_router)
 
 # Add CORS middleware
-env = os.getenv("ENVIRONMENT", "development")
-if env == "production":
+if ENVIRONMENT == "production":
     domain = os.getenv("DOMAIN")
     if not domain:
         raise RuntimeError("DOMAIN env var is required in production")

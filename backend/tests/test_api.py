@@ -90,6 +90,10 @@ def test_agent_initialization():
 def test_cors_production_requires_domain(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.delenv("DOMAIN", raising=False)
+    # utils.config is the single source of truth for ENVIRONMENT — reload it
+    # so the CORS branch in api.main sees the production value.
+    import utils.config as config_module
+    importlib.reload(config_module)
     import api.main as main_module
     with pytest.raises(RuntimeError, match="DOMAIN"):
         importlib.reload(main_module)
@@ -98,6 +102,8 @@ def test_cors_production_requires_domain(monkeypatch):
 def test_cors_production_uses_domain(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("DOMAIN", "https://example.com")
+    import utils.config as config_module
+    importlib.reload(config_module)
     import api.main as main_module
     importlib.reload(main_module)
 

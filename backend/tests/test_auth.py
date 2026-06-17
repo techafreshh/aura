@@ -1,5 +1,4 @@
 import pytest
-import os
 import api.main as main_module
 from httpx import AsyncClient, ASGITransport
 from api.auth import _make_jwt
@@ -44,9 +43,9 @@ class TestJWT:
 
     def test_make_jwt_contains_claims(self):
         import jwt as pyjwt
-        secret = os.getenv("JWT_SECRET", "change-me-in-production")
+        from utils.config import JWT_SECRET
         token = _make_jwt("user-123", "test@example.com", "admin", "Test User")
-        payload = pyjwt.decode(token, secret, algorithms=["HS256"])
+        payload = pyjwt.decode(token, JWT_SECRET, algorithms=["HS256"])
         assert payload["sub"] == "user-123"
         assert payload["email"] == "test@example.com"
         assert payload["role"] == "admin"

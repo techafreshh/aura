@@ -1,5 +1,4 @@
 import os
-import secrets
 import json
 import urllib.parse
 from fastapi import APIRouter, Request, HTTPException, Depends
@@ -8,21 +7,11 @@ from authlib.integrations.starlette_client import OAuth
 from db.crud import upsert_user
 from db.database import async_session
 from api.deps import get_current_user
+from utils.config import JWT_SECRET
 
 import jwt
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-_RAW_JWT_SECRET = os.getenv("JWT_SECRET", "")
-if _RAW_JWT_SECRET and _RAW_JWT_SECRET != "change-me-in-production":
-    JWT_SECRET = _RAW_JWT_SECRET
-elif os.getenv("ENVIRONMENT") == "production":
-    raise RuntimeError(
-        "JWT_SECRET must be set to a strong value in production. "
-        "Generate one with: python -c 'import secrets; print(secrets.token_hex(32))'"
-    )
-else:
-    JWT_SECRET = secrets.token_hex(32)
 
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "")
 
@@ -54,6 +43,10 @@ def _make_jwt(user_id: str, email: str, role: str, name: str) -> str:
     payload = {
         "sub": user_id,
         "email": email,
+        # ``role`` is informational only — the backend always re-reads
+        # ``role`` from the DB on each request (see api/deps.get_current_user)
+        # so an admin demoted via env var cannot keep privileges until the
+        # token expires.
         "role": role,
         "name": name,
         "exp": datetime.now(timezone.utc) + timedelta(days=7),
