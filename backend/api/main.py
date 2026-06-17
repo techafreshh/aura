@@ -135,6 +135,9 @@ async def get_plan(session_id: str, request: Request, user=Depends(get_current_u
     if not session:
         raise HTTPException(status_code=404, detail="Interview plan not found for the given session ID.")
 
+    if user.role != "admin" and session.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
     return InterviewPlan.model_validate_json(session.plan_json)
 
 
@@ -173,6 +176,16 @@ async def save_report(
     user=Depends(get_current_user),
 ):
     async with async_session() as db:
+        session = await get_session(db, session_id)
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    is_worker = getattr(user, "role", None) == "worker"
+    if not is_worker and user.role != "admin" and session.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    async with async_session() as db:
         await update_session_report(db, session_id, report.model_dump_json())
 
     def _archive():
@@ -205,7 +218,12 @@ async def health_check():
 
 
 @app.post("/transcript/{session_id}")
-async def save_transcript(session_id: str, payload: TranscriptPayload, background_tasks: BackgroundTasks):
+async def save_transcript(
+    session_id: str,
+    payload: TranscriptPayload,
+    background_tasks: BackgroundTasks,
+    user=Depends(get_current_user),
+):
     transcript_data = json.dumps([e.model_dump() for e in payload.entries])
 
     async with async_session() as db:

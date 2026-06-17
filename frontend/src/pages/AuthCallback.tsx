@@ -1,30 +1,35 @@
 import { useEffect } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 
 export function AuthCallback() {
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
   const { setAuth } = useAuth()
 
   useEffect(() => {
-    const token = searchParams.get('token')
-    const userParam = searchParams.get('user')
+    // Token is delivered in URL fragment (#) so it never appears in
+    // Referer headers or server access logs. Clear it immediately after reading.
+    const hash = window.location.hash.startsWith('#')
+      ? window.location.hash.slice(1)
+      : window.location.hash
+    const params = new URLSearchParams(hash)
+    const token = params.get('token')
+    const userParam = params.get('user')
 
     if (token && userParam) {
       try {
         const user = JSON.parse(decodeURIComponent(userParam))
         setAuth(token, user)
+        window.history.replaceState(null, '', window.location.pathname + window.location.search)
         navigate(user.role === 'admin' ? '/admin' : '/interview', { replace: true })
       } catch {
+        window.history.replaceState(null, '', window.location.pathname + window.location.search)
         navigate('/', { replace: true })
       }
     } else {
-      // OAuth providers may return data via fragment or postMessage
-      // For Authlib, the callback URL is handled server-side and redirects here
       navigate('/', { replace: true })
     }
-  }, [searchParams, setAuth, navigate])
+  }, [setAuth, navigate])
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>

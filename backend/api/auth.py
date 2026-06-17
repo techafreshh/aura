@@ -1,4 +1,5 @@
 import os
+import secrets
 import json
 import urllib.parse
 from fastapi import APIRouter, Request, HTTPException, Depends
@@ -12,7 +13,17 @@ import jwt
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
+_RAW_JWT_SECRET = os.getenv("JWT_SECRET", "")
+if _RAW_JWT_SECRET and _RAW_JWT_SECRET != "change-me-in-production":
+    JWT_SECRET = _RAW_JWT_SECRET
+elif os.getenv("ENVIRONMENT") == "production":
+    raise RuntimeError(
+        "JWT_SECRET must be set to a strong value in production. "
+        "Generate one with: python -c 'import secrets; print(secrets.token_hex(32))'"
+    )
+else:
+    JWT_SECRET = secrets.token_hex(32)
+
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "")
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
@@ -126,4 +137,6 @@ async def oauth_callback(request: Request, provider: str):
         "role": user.role,
         "avatar_url": user.avatar_url,
     }))
-    return RedirectResponse(f"{FRONTEND_URL}/auth/callback?token={jwt_token}&user={user_data}")
+    # Use URL fragment (#) so the token is NOT sent to servers in Referer headers
+    # or logged in access logs. The frontend must clear the fragment after reading.
+    return RedirectResponse(f"{FRONTEND_URL}/auth/callback#token={jwt_token}&user={user_data}")

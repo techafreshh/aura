@@ -1,11 +1,22 @@
 import os
+import secrets
 from fastapi import Request, HTTPException
 import jwt
 from db.crud import get_user_by_id
 from db.database import async_session
 from db.models import User
 
-JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
+_RAW_JWT_SECRET = os.getenv("JWT_SECRET", "")
+if _RAW_JWT_SECRET and _RAW_JWT_SECRET != "change-me-in-production":
+    JWT_SECRET = _RAW_JWT_SECRET
+elif os.getenv("ENVIRONMENT") == "production":
+    raise RuntimeError(
+        "JWT_SECRET must be set to a strong value in production. "
+        "Generate one with: python -c 'import secrets; print(secrets.token_hex(32))'"
+    )
+else:
+    JWT_SECRET = secrets.token_hex(32)
+
 WORKER_API_KEY = os.getenv("WORKER_API_KEY", "")
 
 
