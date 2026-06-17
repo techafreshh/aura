@@ -3,9 +3,11 @@ import pytest
 import os
 from unittest.mock import patch
 from httpx import AsyncClient, ASGITransport
-import api.main as main_module
 from api.main import app
 from models.schemas import InterviewPlan, FinalReport, SectionGrade
+from db.database import async_session
+from db.crud import create_session, update_session_report
+
 
 @pytest.mark.asyncio
 async def test_health_check():
@@ -13,6 +15,7 @@ async def test_health_check():
         response = await ac.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "healthy"}
+
 
 @pytest.mark.asyncio
 async def test_upload_non_pdf():
@@ -22,6 +25,7 @@ async def test_upload_non_pdf():
     assert response.status_code == 400
     assert "Only PDF files are supported" in response.json()["detail"]
 
+
 @pytest.mark.asyncio
 async def test_get_token_missing_credentials():
     with patch.dict(os.environ, {"LIVEKIT_API_KEY": "", "LIVEKIT_API_SECRET": ""}):
@@ -29,6 +33,7 @@ async def test_get_token_missing_credentials():
             response = await ac.get("/token?session_id=test-session")
         assert response.status_code == 500
         assert "LiveKit credentials are not configured" in response.json()["detail"]
+
 
 @pytest.mark.asyncio
 async def test_get_token_success():
@@ -39,53 +44,69 @@ async def test_get_token_success():
         assert "token" in response.json()
         assert isinstance(response.json()["token"], str)
 
+
 @pytest.mark.asyncio
 async def test_get_plan_not_found():
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        response = await ac.get("/plan/invalid-session")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers={"Authorization": "Bearer test-token"}) as ac:
+        response = await ac.get("/plan/nonexistent-session-id")
     assert response.status_code == 404
     assert "Interview plan not found" in response.json()["detail"]
 
+
 @pytest.mark.asyncio
 async def test_get_plan_success():
-    session_id = "test-plan-session"
     mock_plan = InterviewPlan(
         candidate_name="Test Candidate",
         extracted_skills=["Python"],
         question_bank=["What is Python?"]
     )
-    main_module.plans[session_id] = mock_plan
-    
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+    async with async_session() as db:
+        session = await create_session(
+            db,
+            user_id="test-user-id",
+            candidate_name="Test Candidate",
+            plan_json=mock_plan.model_dump_json(),
+        )
+        session_id = session.id
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers={"Authorization": "Bearer test-token"}) as ac:
         response = await ac.get(f"/plan/{session_id}")
-    
+
     assert response.status_code == 200
     data = response.json()
     assert data["candidate_name"] == "Test Candidate"
     assert data["extracted_skills"] == ["Python"]
     assert data["question_bank"] == ["What is Python?"]
 
+
 def test_agent_initialization():
     """Verify that the agent can be imported and initialized without errors."""
     from agent.parser import agent
     assert agent is not None
-    # Check if the system prompt is set correctly in the private attribute
     system_prompts = "".join(agent._system_prompts)
     assert "technical recruiter" in system_prompts
+
 
 def test_cors_production_requires_domain(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.delenv("DOMAIN", raising=False)
+    # utils.config is the single source of truth for ENVIRONMENT — reload it
+    # so the CORS branch in api.main sees the production value.
+    import utils.config as config_module
+    importlib.reload(config_module)
     import api.main as main_module
     with pytest.raises(RuntimeError, match="DOMAIN"):
         importlib.reload(main_module)
 
+
 def test_cors_production_uses_domain(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("DOMAIN", "https://example.com")
+    import utils.config as config_module
+    importlib.reload(config_module)
     import api.main as main_module
     importlib.reload(main_module)
-    # Should not raise
+
 
 @pytest.mark.asyncio
 async def test_transcript_rejects_invalid_payload():
@@ -93,9 +114,14 @@ async def test_transcript_rejects_invalid_payload():
         response = await ac.post("/transcript/test-session", json={"invalid": "payload"})
     assert response.status_code == 422
 
+
 @pytest.mark.asyncio
 async def test_report_stream_returns_report():
-    session_id = "stream-test-1"
+    mock_plan = InterviewPlan(
+        candidate_name="Test User",
+        extracted_skills=["Python"],
+        question_bank=["Q1"]
+    )
     mock_report = FinalReport(
         candidate_name="Test User",
         overall_score=75,
@@ -105,7 +131,15 @@ async def test_report_stream_returns_report():
         recommendation="Hire",
         summary="Strong technical candidate."
     )
-    main_module.reports[session_id] = mock_report
+    async with async_session() as db:
+        session = await create_session(
+            db,
+            user_id="test-user-id",
+            candidate_name="Test User",
+            plan_json=mock_plan.model_dump_json(),
+        )
+        await update_session_report(db, session.id, mock_report.model_dump_json())
+        session_id = session.id
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.get(f"/report-stream/{session_id}")

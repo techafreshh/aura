@@ -12,3 +12,7 @@ wheels/
 .agents/
 examples/
 samples/
+
+# Local SQLite database files (initialized at startup via init_db())
+data/
+*.db

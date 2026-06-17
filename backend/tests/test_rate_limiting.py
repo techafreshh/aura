@@ -5,7 +5,10 @@ from httpx import AsyncClient, ASGITransport
 def test_limiter_uses_redis_url_when_set(monkeypatch):
     """Limiter should use REDIS_URL from environment when available."""
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
     import importlib
+    import utils.config as config_module
+    importlib.reload(config_module)
     import api.main as main_module
 
     importlib.reload(main_module)
@@ -15,7 +18,10 @@ def test_limiter_uses_redis_url_when_set(monkeypatch):
 def test_limiter_falls_back_to_memory_when_no_redis(monkeypatch):
     """Limiter should fall back to in-memory when REDIS_URL is not set."""
     monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
     import importlib
+    import utils.config as config_module
+    importlib.reload(config_module)
     import api.main as main_module
 
     importlib.reload(main_module)

@@ -40,8 +40,10 @@ def test_sentry_init_has_traces_sample_rate():
 
 
 def test_sentry_init_has_environment():
-    """Sentry init configures environment from env var."""
+    """Sentry init configures environment from the shared config module."""
     import api.main
     import inspect
     source = inspect.getsource(api.main)
-    assert 'os.getenv("ENVIRONMENT", "production")' in source
+    # ENVIRONMENT is now sourced from utils.config (single source of truth) so
+    # Sentry, CORS, and the JWT-secret guard all agree on a default.
+    assert "environment=ENVIRONMENT" in source or 'os.getenv("ENVIRONMENT"' in source

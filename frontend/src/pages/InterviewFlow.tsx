@@ -7,6 +7,7 @@ import { InterviewAgent } from '@/components/voice/InterviewAgent'
 import { ReportView } from '@/components/interview/ReportView'
 import { Toaster } from '@/components/ui/toaster'
 import { useToast } from '@/hooks/use-toast'
+import { useAuth } from '@/contexts/AuthContext'
 import '@/styles/aura-pre.css'
 
 export function InterviewFlow() {
@@ -16,6 +17,7 @@ export function InterviewFlow() {
   const [token, setToken] = useState<string | null>(null)
   const [isConnecting, setIsConnecting] = useState(false)
   const { toast } = useToast()
+  const { user, logout } = useAuth()
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) setFile(e.target.files[0])
@@ -71,11 +73,17 @@ export function InterviewFlow() {
           <Link to="/" className="brand" aria-label="Aura home">
             <span className="mark" aria-hidden="true"></span><span>Aura</span>
           </Link>
-          {step !== 'UPLOAD' && (
-            <button className="btn btn-ghost" onClick={reset} style={{ height: 32, padding: '0 14px', flex: 'none', fontSize: 13 }}>
-              Cancel
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {user && <span style={{ fontSize: 13, opacity: 0.7 }}>{user.name}</span>}
+            {step !== 'UPLOAD' && (
+              <button className="btn btn-ghost" onClick={reset} style={{ height: 32, padding: '0 14px', flex: 'none', fontSize: 13 }}>
+                Cancel
+              </button>
+            )}
+            <button className="btn btn-ghost" onClick={logout} style={{ height: 32, padding: '0 14px', flex: 'none', fontSize: 13 }}>
+              Sign out
             </button>
-          )}
+          </div>
         </div>
       </nav>
 
