@@ -5,7 +5,7 @@ from api.main import app
 from models.schemas import FinalReport, SectionGrade, InterviewPlan
 from utils.pdf_report import generate_report_pdf
 from db.database import async_session
-from db.crud import create_session, update_session_report
+from db.crud import create_session
 
 
 def _sample_report() -> FinalReport:

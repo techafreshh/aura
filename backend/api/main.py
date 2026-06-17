@@ -185,6 +185,9 @@ async def save_report(
     if not is_worker and user.role != "admin" and session.user_id != user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
+    if is_worker:
+        print(f"WORKER_REPORT_WRITE: worker={user.id} session_id={session_id} session_owner={session.user_id}")
+
     async with async_session() as db:
         await update_session_report(db, session_id, report.model_dump_json())
 
@@ -224,6 +227,16 @@ async def save_transcript(
     background_tasks: BackgroundTasks,
     user=Depends(get_current_user),
 ):
+    async with async_session() as db:
+        session = await get_session(db, session_id)
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    is_worker = getattr(user, "role", None) == "worker"
+    if not is_worker and user.role != "admin" and session.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
     transcript_data = json.dumps([e.model_dump() for e in payload.entries])
 
     async with async_session() as db:
@@ -287,7 +300,16 @@ async def download_artifact(request: Request, session_id: str, file_type: str, u
 
 @app.get("/report-stream/{session_id}")
 @limiter.limit("10/hour")
-async def report_stream(request: Request, session_id: str):
+async def report_stream(request: Request, session_id: str, user=Depends(get_current_user)):
+    async with async_session() as db:
+        session = await get_session(db, session_id)
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if user.role != "admin" and session.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
     lock = _sse_locks.setdefault(session_id, asyncio.Lock())
 
     async with lock:
