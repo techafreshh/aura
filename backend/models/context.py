@@ -5,6 +5,8 @@ from models.schemas import InterviewPlan
 @dataclass
 class InterviewContext:
     plan: InterviewPlan
+    user_id: str = "anonymous"
+    user_email: str = ""
     current_phase: str = "Intro"
     transcript: list = field(default_factory=list)
     start_time: float = 0.0

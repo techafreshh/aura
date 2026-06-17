@@ -18,7 +18,7 @@ from utils.tracing import setup_langfuse
 from models.schemas import UploadResponse, InterviewPlan, FinalReport, TranscriptPayload
 from api.deps import get_current_user
 from api.auth import router as auth_router
-from db.crud import create_session, get_session, update_session_report, update_session_transcript
+from db.crud import create_session, get_session, get_user_by_id, update_session_report, update_session_transcript
 from db.database import async_session
 from utils.config import ENVIRONMENT
 
@@ -99,7 +99,10 @@ async def upload_resume(
 
         session_id = str(uuid.uuid4())
 
-        with propagate_attributes(session_id=session_id):
+        with propagate_attributes(
+            session_id=session_id,
+            user_id=user.id,
+        ):
             result = await agent.run(text)
 
         plan = result.output
@@ -127,7 +130,7 @@ async def upload_resume(
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
 
-@app.get("/plan/{session_id}", response_model=InterviewPlan)
+@app.get("/plan/{session_id}")
 async def get_plan(session_id: str, request: Request, user=Depends(get_current_user)):
     async with async_session() as db:
         session = await get_session(db, session_id)
@@ -138,7 +141,15 @@ async def get_plan(session_id: str, request: Request, user=Depends(get_current_u
     if user.role != "admin" and session.user_id != user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    return InterviewPlan.model_validate_json(session.plan_json)
+    async with async_session() as db:
+        owner = await get_user_by_id(db, session.user_id)
+
+    plan = InterviewPlan.model_validate_json(session.plan_json)
+    return {
+        "plan": plan,
+        "user_id": session.user_id,
+        "user_email": (owner.email if owner else "") or "",
+    }
 
 
 @app.get("/token")
