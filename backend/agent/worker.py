@@ -23,6 +23,7 @@ from livekit.agents import (
 )
 from livekit.agents.telemetry import set_tracer_provider
 from livekit.plugins import silero
+from opentelemetry import trace as otel_trace
 from models.schemas import InterviewPlan, FinalReport
 from models.context import InterviewContext
 from agent.evaluator import evaluator_agent
@@ -47,12 +48,17 @@ _langfuse_provider = setup_langfuse()
 
 _report_lock = asyncio.Lock()
 
-async def generate_and_save_report(context: InterviewContext, session_id: str):
+async def generate_and_save_report(context: InterviewContext, session_id: str, user_id: str | None = None, user_email: str | None = None):
     """Generate report from transcript and POST it to the backend."""
     async with _report_lock:
         if context.report_generated:
             return
         context.report_generated = True
+
+    if user_id is not None:
+        context.user_id = user_id
+    if user_email is not None:
+        context.user_email = user_email
 
     backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
     worker_api_key = os.getenv("WORKER_API_KEY", "")
@@ -107,6 +113,17 @@ async def generate_and_save_report(context: InterviewContext, session_id: str):
         logger.error(f"Transcript save failed for {session_id}: {e}", exc_info=True)
         sentry_sdk.capture_exception(e)
 
+    duration = time.time() - context.start_time if context.start_time else 0.0
+    tracer = otel_trace.get_tracer("aura-interview")
+    with tracer.start_as_current_span("interview_completed") as span:
+        span.set_attribute("langfuse.session.id", session_id)
+        span.set_attribute("langfuse.user.id", context.user_id)
+        span.set_attribute("aura.duration_seconds", round(duration, 1))
+        span.set_attribute("aura.overall_score", report.overall_score)
+        span.set_attribute("aura.recommendation", report.recommendation)
+        span.set_attribute("aura.transcript_entries", len(context.transcript))
+        span.set_attribute("aura.section_count", len(report.section_grades))
+
 
 class InterviewWorkflow:
     def __init__(self, plan: InterviewPlan, session: voice.AgentSession, session_id: str):
@@ -143,16 +160,14 @@ class InterviewWorkflow:
 async def entrypoint(ctx: JobContext):
     logger.info(f"Connecting to room {ctx.room.name}")
     await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
-    
+
     session_id = ctx.room.name
     backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
 
-    # Use module-level Langfuse provider for LiveKit telemetry
-    if _langfuse_provider:
-        set_tracer_provider(_langfuse_provider, metadata={"langfuse.session.id": session_id})
-    
     # Fetch plan from backend
     plan = None
+    user_id = "anonymous"
+    user_email = ""
     worker_api_key = os.getenv("WORKER_API_KEY", "")
     plan_headers = {"Authorization": f"Bearer {worker_api_key}"} if worker_api_key else {}
     try:
@@ -161,7 +176,12 @@ async def entrypoint(ctx: JobContext):
             response = await client.get(f"{backend_url}/plan/{session_id}", headers=plan_headers)
             if response.status_code == 200:
                 plan_data = response.json()
-                plan = InterviewPlan(**plan_data)
+                if isinstance(plan_data, dict) and "plan" in plan_data:
+                    plan = InterviewPlan(**plan_data["plan"])
+                    user_id = plan_data.get("user_id") or "anonymous"
+                    user_email = plan_data.get("user_email") or ""
+                else:
+                    plan = InterviewPlan(**plan_data)
                 logger.info(f"Successfully fetched plan for candidate: {plan.candidate_name}")
             else:
                 logger.warning(f"Failed to fetch plan (Status {response.status_code}): {response.text}")
@@ -172,6 +192,13 @@ async def entrypoint(ctx: JobContext):
         logger.info("Using fallback interview plan.")
         plan = InterviewPlan(candidate_name="Candidate", extracted_skills=[], question_bank=[])
 
+    # Use module-level Langfuse provider for LiveKit telemetry
+    if _langfuse_provider:
+        set_tracer_provider(_langfuse_provider, metadata={
+            "langfuse.session.id": session_id,
+            "langfuse.user.id": user_id,
+        })
+
     # Initialize the AgentSession
     session = voice.AgentSession(
         vad=silero.VAD.load(),
@@ -179,10 +206,25 @@ async def entrypoint(ctx: JobContext):
         llm=inference.LLM(model="openai/gpt-4o-mini"),
         tts=inference.TTS(model="cartesia/sonic"),
     )
-    
+
     workflow = InterviewWorkflow(plan=plan, session=session, session_id=session_id)
+    workflow.context.user_id = user_id
+    workflow.context.user_email = user_email
     workflow.context.start_time = time.time()
 
+    tracer = otel_trace.get_tracer("aura-interview")
+    with tracer.start_as_current_span("interview_session") as span:
+        span.set_attribute("langfuse.session.id", session_id)
+        span.set_attribute("langfuse.user.id", user_id)
+        span.set_attribute("langfuse.user.email", user_email)
+        span.set_attribute("aura.candidate_name", plan.candidate_name)
+        span.set_attribute("aura.skills", ",".join(plan.extracted_skills))
+        span.set_attribute("aura.question_count", len(plan.question_bank))
+
+        await _run_interview(ctx, workflow, session, plan, session_id, user_id, user_email)
+
+
+async def _run_interview(ctx: JobContext, workflow: InterviewWorkflow, session: voice.AgentSession, plan: InterviewPlan, session_id: str, user_id: str, user_email: str):
     # Collect transcript via events
     @session.on("user_input_transcribed")
     def on_user_input(ev):
@@ -215,7 +257,7 @@ async def entrypoint(ctx: JobContext):
 
         async def _finalize():
             try:
-                await generate_and_save_report(workflow.context, session_id)
+                await generate_and_save_report(workflow.context, session_id, user_id, user_email)
             finally:
                 logger.info("Shutting down agent session to release resources.")
                 ctx.shutdown(reason="participant_disconnected")
@@ -230,7 +272,7 @@ async def entrypoint(ctx: JobContext):
             except Exception as e:
                 logger.error(f"Report task errored: {e}")
         else:
-            await generate_and_save_report(workflow.context, session_id)
+            await generate_and_save_report(workflow.context, session_id, user_id, user_email)
         if _langfuse_provider:
             _langfuse_provider.force_flush()
 
@@ -303,7 +345,7 @@ async def entrypoint(ctx: JobContext):
                 except Exception:
                     pass
                 await asyncio.sleep(3)  # Let TTS finish
-                await generate_and_save_report(workflow.context, session_id)
+                await generate_and_save_report(workflow.context, session_id, user_id, user_email)
                 ctx.shutdown(reason="time_cap_reached")
                 return
 

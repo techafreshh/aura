@@ -99,7 +99,11 @@ async def upload_resume(
 
         session_id = str(uuid.uuid4())
 
-        with propagate_attributes(session_id=session_id):
+        with propagate_attributes(
+            session_id=session_id,
+            user_id=user.id,
+            user_email=getattr(user, "email", "") or "",
+        ):
             result = await agent.run(text)
 
         plan = result.output
@@ -127,7 +131,7 @@ async def upload_resume(
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
 
-@app.get("/plan/{session_id}", response_model=InterviewPlan)
+@app.get("/plan/{session_id}")
 async def get_plan(session_id: str, request: Request, user=Depends(get_current_user)):
     async with async_session() as db:
         session = await get_session(db, session_id)
@@ -138,7 +142,12 @@ async def get_plan(session_id: str, request: Request, user=Depends(get_current_u
     if user.role != "admin" and session.user_id != user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    return InterviewPlan.model_validate_json(session.plan_json)
+    plan = InterviewPlan.model_validate_json(session.plan_json)
+    return {
+        "plan": plan,
+        "user_id": session.user_id,
+        "user_email": getattr(user, "email", "") or "",
+    }
 
 
 @app.get("/token")

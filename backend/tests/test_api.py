@@ -74,9 +74,38 @@ async def test_get_plan_success():
 
     assert response.status_code == 200
     data = response.json()
-    assert data["candidate_name"] == "Test Candidate"
-    assert data["extracted_skills"] == ["Python"]
-    assert data["question_bank"] == ["What is Python?"]
+    assert data["plan"]["candidate_name"] == "Test Candidate"
+    assert data["plan"]["extracted_skills"] == ["Python"]
+    assert data["plan"]["question_bank"] == ["What is Python?"]
+    assert data["user_id"] == "test-user-id"
+    assert data["user_email"] == "test@example.com"
+
+
+@pytest.mark.asyncio
+async def test_get_plan_returns_user_context_for_admin():
+    """GET /plan returns plan + user_id + user_email so the worker can attribute traces."""
+    mock_plan = InterviewPlan(
+        candidate_name="Admin Test",
+        extracted_skills=["Python"],
+        question_bank=["Q1"],
+    )
+    async with async_session() as db:
+        session = await create_session(
+            db,
+            user_id="some-other-user-id",
+            candidate_name="Admin Test",
+            plan_json=mock_plan.model_dump_json(),
+        )
+        session_id = session.id
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers={"Authorization": "Bearer test-token"}) as ac:
+        response = await ac.get(f"/plan/{session_id}")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["user_id"] == "some-other-user-id"
+    assert data["user_email"] == "test@example.com"
+    assert data["plan"]["candidate_name"] == "Admin Test"
 
 
 def test_agent_initialization():
