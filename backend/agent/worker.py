@@ -152,7 +152,9 @@ class InterviewWorkflow:
     @llm.function_tool(description="End the interview and generate a final report. Call this when you have asked enough questions.")
     async def end_interview(self) -> str:
         logger.info("Ending interview and generating report...")
-        await generate_and_save_report(self.context, self.session_id)
+        await generate_and_save_report(
+            self.context, self.session_id, self.context.user_id, self.context.user_email
+        )
         self.context.current_phase = "Outro"
         return "Report generated. Thank the candidate and say goodbye."
 
