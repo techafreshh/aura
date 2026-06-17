@@ -1,50 +1,5 @@
 # Review Fix Report
 
-<!--
-This report documents the fixes applied to PR #10 in response to the code
-review at .agents/reviews/pr-10-review.md.
-
-Summary of changes (commit 3e4449a):
-
-High #1 - JWT_SECRET weak-secret guard is bypassable; production check is
-inconsistent across modules:
-  * New backend/utils/config.py centralizes secret loading. Strength check
-    is >= 32 bytes + a known-bad list ("change-me-in-production",
-    "changeme", "secret", "password", "default", "test", "development"),
-    compared via hmac.compare_digest to avoid timing leaks. Production
-    startup raises RuntimeError for missing or weak secrets.
-  * backend/api/auth.py and backend/api/deps.py import JWT_SECRET from
-    utils.config, removing the duplicated 12-line block from each module.
-  * backend/api/main.py reads ENVIRONMENT from utils.config for both the
-    Sentry init and the CORS branch, so a missing env var can no longer
-    produce a "production-tagged, dev-secure-keyed" misconfiguration.
-  * The dev fallback is a fixed string (not per-process random), so
-    existing tokens survive backend restarts in development.
-
-High #2 - "change-me-in-production" was the example default in .env.example:
-  * backend/.env.example now ships JWT_SECRET= empty, with a comment
-    showing the secrets.token_hex(32) generation command. ADMIN_EMAIL
-    and WORKER_API_KEY also got security notes.
-
-Additional (related) fixes:
-  * backend/api/deps.py: worker API key comparison switched to
-    hmac.compare_digest (Suggestion #5).
-  * backend/api/auth.py: added a comment in _make_jwt clarifying that the
-    "role" JWT claim is informational only (the backend re-reads role
-    from the DB on every request).
-  * backend/tests/test_config.py: 10 new tests covering strong/weak/
-    missing secrets, known-bad values, dev fallback, and ENVIRONMENT
-    default.
-  * tests/test_api.py, tests/test_rate_limiting.py, tests/test_sentry.py:
-    reload utils.config before reloading api.main so the ENVIRONMENT
-    mutation in those tests is picked up by the CORS/Sentry branches.
-  * tests/test_auth.py: decode via utils.config.JWT_SECRET instead of
-    reading the env var directly.
-
-Validation: pytest 72/72 (was 62, +10 new), ruff clean on touched files,
-tsc -b + vite build all green. Full report follows.
--->
-
 **Review**: `.agents/reviews/pr-10-review.md`
 **Branch**: `feature/oauth-authentication`
 **Commit**: `3e4449a` — `fix: address PR #10 review High #1 and #2`
