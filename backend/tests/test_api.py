@@ -83,28 +83,47 @@ async def test_get_plan_success():
 
 @pytest.mark.asyncio
 async def test_get_plan_returns_user_context_for_admin():
-    """GET /plan returns plan + user_id + user_email so the worker can attribute traces."""
+    """GET /plan returns plan + user_id + user_email so the worker can attribute traces.
+
+    When an admin queries another user's session, user_email must be the session
+    owner's email, not the requesting admin's — so Langfuse trace attribution
+    points at the candidate.
+    """
     mock_plan = InterviewPlan(
         candidate_name="Admin Test",
         extracted_skills=["Python"],
         question_bank=["Q1"],
     )
+    owner_id = "some-other-user-id"
+    owner_email = "candidate@example.com"
+    from db.database import async_session
+    from db.models import User
+
     async with async_session() as db:
         session = await create_session(
             db,
-            user_id="some-other-user-id",
+            user_id=owner_id,
             candidate_name="Admin Test",
             plan_json=mock_plan.model_dump_json(),
         )
         session_id = session.id
+        db.add(User(
+            id=owner_id,
+            email=owner_email,
+            name="Candidate",
+            provider="google",
+            provider_id="candidate-provider-id",
+            role="candidate",
+        ))
+        await db.commit()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers={"Authorization": "Bearer test-token"}) as ac:
         response = await ac.get(f"/plan/{session_id}")
 
     assert response.status_code == 200
     data = response.json()
-    assert data["user_id"] == "some-other-user-id"
-    assert data["user_email"] == "test@example.com"
+    assert data["user_id"] == owner_id
+    assert data["user_email"] == owner_email
     assert data["plan"]["candidate_name"] == "Admin Test"
 
 

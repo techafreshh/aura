@@ -223,10 +223,16 @@ async def entrypoint(ctx: JobContext):
         span.set_attribute("aura.skills", ",".join(plan.extracted_skills))
         span.set_attribute("aura.question_count", len(plan.question_bank))
 
-        await _run_interview(ctx, workflow, session, plan, session_id, user_id, user_email)
+        await _run_interview(ctx, workflow)
 
 
-async def _run_interview(ctx: JobContext, workflow: InterviewWorkflow, session: voice.AgentSession, plan: InterviewPlan, session_id: str, user_id: str, user_email: str):
+async def _run_interview(ctx: JobContext, workflow: InterviewWorkflow):
+    session = workflow.session
+    plan = workflow.context.plan
+    session_id = workflow.session_id
+    user_id = workflow.context.user_id
+    user_email = workflow.context.user_email
+
     # Collect transcript via events
     @session.on("user_input_transcribed")
     def on_user_input(ev):

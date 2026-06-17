@@ -1,6 +1,7 @@
 import os
 import asyncio
 import pytest
+import pytest_asyncio
 
 os.environ.setdefault("JWT_SECRET", "test-secret-key-for-testing-only")
 os.environ.setdefault("DATABASE_PATH", ":memory:")
@@ -45,6 +46,28 @@ def _apply_auth_override():
     app.dependency_overrides[get_current_user] = _override_get_current_user
     yield
     # Don't clear — let individual tests clear if they need to test unauthenticated access
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _seed_test_user():
+    """Seed the TEST_USER row so /plan can resolve session owner email."""
+    from db.database import async_session
+    from db.models import User
+    from sqlalchemy import select
+
+    async with async_session() as db:
+        existing = await db.execute(select(User).where(User.id == TEST_USER.id))
+        if existing.scalar_one_or_none() is None:
+            db.add(User(
+                id=TEST_USER.id,
+                email=TEST_USER.email,
+                name=TEST_USER.name,
+                provider="google",
+                provider_id="test-provider-id",
+                role=TEST_USER.role,
+            ))
+            await db.commit()
+    yield
 
 
 @pytest.fixture
