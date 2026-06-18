@@ -1,0 +1,160 @@
+/* ============================================================
+   Aura Dashboard — shared styles for AdminDashboard, MyInterviews,
+   and SessionDetail. Scoped under .aura-dashboard-page.
+============================================================ */
+.aura-dashboard-page {
+  --bg: #09090b;
+  --bg-2: #0c0c0f;
+  --surface: rgba(255,255,255,0.03);
+  --surface-2: rgba(255,255,255,0.05);
+  --border: #27272a;
+  --border-soft: rgba(255,255,255,0.06);
+  --border-strong: rgba(255,255,255,0.10);
+  --fg: #fafafa;
+  --fg-2: #e4e4e7;
+  --muted: #a1a1aa;
+  --muted-2: #71717a;
+  --muted-3: #52525b;
+  --accent: #6366f1;
+  --accent-2: #818cf8;
+  --accent-3: #a5b4fc;
+  --accent-deep: #4338ca;
+  --success: #10b981;
+  --warn: #f59e0b;
+  --danger: #ef4444;
+  --font-display: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --gutter: clamp(20px, 4vw, 56px);
+  --radius-sm: 10px;
+  --radius: 16px;
+  --radius-lg: 24px;
+
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--fg-2);
+  background: var(--bg);
+  font-variant-numeric: tabular-nums;
+  min-height: 100vh;
+  position: relative;
+}
+
+.aura-dashboard-page *,
+.aura-dashboard-page *::before,
+.aura-dashboard-page *::after { box-sizing: border-box; }
+
+.aura-dashboard-page a { color: inherit; text-decoration: none; }
+.aura-dashboard-page button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+.aura-dashboard-page svg { display: block; max-width: 100%; }
+
+.aura-dashboard-page .page-ambient { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+.aura-dashboard-page .page-ambient::before { content: ''; position: absolute; top: -25%; right: -15%; width: 760px; height: 760px; background: radial-gradient(closest-side, rgba(99,102,241,0.14), transparent 70%); filter: blur(20px); }
+.aura-dashboard-page .page-ambient::after { content: ''; position: absolute; bottom: -30%; left: -15%; width: 620px; height: 620px; background: radial-gradient(closest-side, rgba(67,56,202,0.12), transparent 70%); filter: blur(20px); }
+.aura-dashboard-page .grid-mesh { position: fixed; inset: 0; pointer-events: none; z-index: 0; background-image: linear-gradient(to right, rgba(255,255,255,0.022) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.022) 1px, transparent 1px); background-size: 64px 64px; mask-image: radial-gradient(ellipse 90% 80% at 50% 20%, black 30%, transparent 80%); -webkit-mask-image: radial-gradient(ellipse 90% 80% at 50% 20%, black 30%, transparent 80%); }
+
+.aura-dashboard-page .container { width: 100%; max-width: 1240px; margin: 0 auto; padding-inline: var(--gutter); position: relative; z-index: 1; }
+
+.aura-dashboard-page .nav { position: sticky; top: 12px; z-index: 50; max-width: 1240px; width: calc(100% - 32px); margin: 12px auto 0; backdrop-filter: blur(16px) saturate(180%); -webkit-backdrop-filter: blur(16px) saturate(180%); background: rgba(9, 9, 11, 0.85); border: 1px solid var(--border-soft); border-radius: 20px; box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03); }
+.aura-dashboard-page .nav-row { display: flex; align-items: center; justify-content: space-between; height: 52px; gap: 16px; padding: 0 16px; }
+.aura-dashboard-page .brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; color: var(--fg); letter-spacing: -0.01em; }
+.aura-dashboard-page .brand .mark { width: 22px; height: 22px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, rgba(255,255,255,0.65), transparent 50%), radial-gradient(circle at 50% 50%, var(--accent-2), var(--accent) 45%, var(--accent-deep) 75%, #0a0a12 100%); box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 0 16px rgba(99,102,241,0.55); }
+
+.aura-dashboard-page .nav-links { display: none; gap: 22px; color: var(--muted); font-size: 14px; align-items: center; }
+.aura-dashboard-page .nav-links a { padding: 6px 4px; border-bottom: 1px solid transparent; transition: color .15s, border-color .15s; }
+.aura-dashboard-page .nav-links a:hover { color: var(--fg); }
+.aura-dashboard-page .nav-links a.active { color: var(--fg); border-bottom-color: var(--accent); }
+@media (min-width: 720px) { .aura-dashboard-page .nav-links { display: inline-flex; } }
+
+.aura-dashboard-page .nav-cta { display: flex; align-items: center; gap: 10px; }
+.aura-dashboard-page .user-chip { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.aura-dashboard-page .user-chip .avatar { width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(180deg, var(--accent-2), var(--accent)); display: inline-flex; align-items: center; justify-content: center; color: white; font-size: 11px; font-weight: 600; }
+
+.aura-dashboard-page .btn { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px; border-radius: 10px; font-size: 13px; font-weight: 500; letter-spacing: -0.005em; transition: transform .15s, background .2s, border-color .2s, color .2s, box-shadow .25s; white-space: nowrap; }
+.aura-dashboard-page .btn-primary { color: white; background: linear-gradient(180deg, var(--accent-2), var(--accent)); box-shadow: 0 0 0 1px rgba(255,255,255,0.08) inset, 0 1px 0 rgba(255,255,255,0.25) inset, 0 8px 22px -10px rgba(99,102,241,0.7); }
+.aura-dashboard-page .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 0 0 1px rgba(255,255,255,0.14) inset, 0 1px 0 rgba(255,255,255,0.3) inset, 0 12px 28px -10px rgba(99,102,241,0.85); }
+.aura-dashboard-page .btn-ghost { color: var(--fg-2); border: 1px solid var(--border); background: rgba(255,255,255,0.02); }
+.aura-dashboard-page .btn-ghost:hover { border-color: var(--border-strong); background: rgba(255,255,255,0.04); }
+.aura-dashboard-page .btn-sm { height: 30px; padding: 0 10px; font-size: 12px; border-radius: 8px; }
+.aura-dashboard-page .btn .arrow { width: 14px; height: 14px; }
+
+/* Headings */
+.aura-dashboard-page .page-head { padding-top: clamp(40px, 6vw, 72px); padding-bottom: 20px; display: flex; flex-direction: column; gap: 6px; }
+.aura-dashboard-page .page-eyebrow { display: inline-flex; align-items: center; gap: 10px; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted-2); }
+.aura-dashboard-page .page-eyebrow .lit { color: var(--accent-3); }
+.aura-dashboard-page .page-h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(28px, 3.4vw, 40px); line-height: 1.05; letter-spacing: -0.03em; color: var(--fg); margin: 4px 0 0; }
+.aura-dashboard-page .page-h1 em { font-style: normal; background: linear-gradient(180deg, #fff, #c7d2fe 70%, #818cf8); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.aura-dashboard-page .lede { color: var(--muted); font-size: 15px; max-width: 64ch; line-height: 1.55; margin: 8px 0 0; }
+
+/* Stats bar */
+.aura-dashboard-page .stats-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin: 28px 0 22px; }
+.aura-dashboard-page .stat-card { padding: 18px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); backdrop-filter: blur(12px) saturate(140%); -webkit-backdrop-filter: blur(12px) saturate(140%); }
+.aura-dashboard-page .stat-label { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted-2); }
+.aura-dashboard-page .stat-value { font-size: 28px; font-weight: 600; color: var(--fg); margin-top: 6px; letter-spacing: -0.02em; }
+.aura-dashboard-page .stat-foot { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+/* Filter bar */
+.aura-dashboard-page .filter-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.aura-dashboard-page .filter-bar .search { flex: 1; min-width: 220px; }
+.aura-dashboard-page .filter-bar .search input { width: 100%; height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,0.02); color: var(--fg); font-size: 13px; outline: none; transition: border-color .15s; }
+.aura-dashboard-page .filter-bar .search input:focus { border-color: var(--accent); }
+.aura-dashboard-page .filter-bar .search input::placeholder { color: var(--muted-2); }
+.aura-dashboard-page .filter-bar .seg { display: inline-flex; align-items: center; padding: 3px; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 8px; }
+.aura-dashboard-page .filter-bar .seg button { height: 28px; padding: 0 12px; border-radius: 6px; font-size: 12px; color: var(--muted); font-weight: 500; transition: color .15s, background .15s; }
+.aura-dashboard-page .filter-bar .seg button:hover { color: var(--fg-2); }
+.aura-dashboard-page .filter-bar .seg button.active { background: var(--accent); color: white; }
+
+/* Card / table */
+.aura-dashboard-page .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); backdrop-filter: blur(12px) saturate(140%); -webkit-backdrop-filter: blur(12px) saturate(140%); overflow: hidden; }
+.aura-dashboard-page .table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.aura-dashboard-page .table thead th { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted-2); text-align: left; padding: 14px 18px; border-bottom: 1px solid var(--border); background: rgba(255,255,255,0.02); user-select: none; }
+.aura-dashboard-page .table thead th.sortable { cursor: pointer; transition: color .15s; }
+.aura-dashboard-page .table thead th.sortable:hover { color: var(--fg-2); }
+.aura-dashboard-page .table thead th .sort-ind { display: inline-block; margin-left: 6px; opacity: 0.6; font-size: 10px; }
+.aura-dashboard-page .table tbody tr { transition: background .15s; }
+.aura-dashboard-page .table tbody tr:hover { background: rgba(99,102,241,0.06); cursor: pointer; }
+.aura-dashboard-page .table tbody td { padding: 14px 18px; border-bottom: 1px solid var(--border-soft); color: var(--fg-2); vertical-align: middle; }
+.aura-dashboard-page .table tbody tr:last-child td { border-bottom: none; }
+.aura-dashboard-page .table .num { font-variant-numeric: tabular-nums; }
+.aura-dashboard-page .table .muted { color: var(--muted-2); }
+
+/* Pill badges for status/recommendation */
+.aura-dashboard-page .pill { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 10px; border-radius: 999px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--border); background: rgba(255,255,255,0.02); white-space: nowrap; }
+.aura-dashboard-page .pill .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.aura-dashboard-page .pill-success { color: var(--success); border-color: rgba(16, 185, 129, 0.4); background: rgba(16, 185, 129, 0.08); }
+.aura-dashboard-page .pill-accent { color: var(--accent-3); border-color: rgba(99, 102, 241, 0.45); background: rgba(99, 102, 241, 0.10); }
+.aura-dashboard-page .pill-warn { color: var(--warn); border-color: rgba(245, 158, 11, 0.4); background: rgba(245, 158, 11, 0.10); }
+.aura-dashboard-page .pill-danger { color: var(--danger); border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.10); }
+.aura-dashboard-page .pill-muted { color: var(--muted-2); border-color: var(--border); }
+
+/* Empty state */
+.aura-dashboard-page .empty { padding: 56px 20px; text-align: center; color: var(--muted); }
+.aura-dashboard-page .empty h3 { color: var(--fg); font-size: 18px; margin: 0 0 6px; font-weight: 500; }
+.aura-dashboard-page .empty p { margin: 0; font-size: 14px; }
+.aura-dashboard-page .empty-cta { margin-top: 18px; }
+
+/* Loading skeleton */
+.aura-dashboard-page .loading-state { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; gap: 12px; color: var(--muted); }
+.aura-dashboard-page .spinner { width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent-2); animation: aura-spin 0.8s linear infinite; }
+@keyframes aura-spin { to { transform: rotate(360deg); } }
+
+/* Error banner */
+.aura-dashboard-page .error-banner { margin: 24px 0; padding: 14px 18px; border: 1px solid rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.08); color: #fca5a5; border-radius: var(--radius); font-size: 14px; }
+
+/* Session detail */
+.aura-dashboard-page .detail-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin: 20px 0 28px; padding: 18px 22px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.aura-dashboard-page .detail-meta .meta-label { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted-2); }
+.aura-dashboard-page .detail-meta .meta-value { font-size: 14px; color: var(--fg); margin-top: 4px; word-break: break-word; }
+.aura-dashboard-page .transcript { max-height: 520px; overflow-y: auto; padding: 18px 22px; display: flex; flex-direction: column; gap: 12px; }
+.aura-dashboard-page .transcript-line { display: flex; gap: 12px; align-items: flex-start; }
+.aura-dashboard-page .transcript-line .who { flex: none; width: 92px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted-2); padding-top: 2px; }
+.aura-dashboard-page .transcript-line.assistant .who { color: var(--accent-3); }
+.aura-dashboard-page .transcript-line .text { color: var(--fg-2); line-height: 1.55; font-size: 14px; flex: 1; }
+.aura-dashboard-page .transcript::-webkit-scrollbar { width: 8px; }
+.aura-dashboard-page .transcript::-webkit-scrollbar-track { background: transparent; }
+.aura-dashboard-page .transcript::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+.aura-dashboard-page .section-title { font-size: 14px; font-family: var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted-2); margin: 28px 0 12px; }
+
+.aura-dashboard-page .back-link { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; padding: 6px 10px; border-radius: 8px; transition: color .15s, background .15s; }
+.aura-dashboard-page .back-link:hover { color: var(--fg-2); background: rgba(255,255,255,0.04); }
