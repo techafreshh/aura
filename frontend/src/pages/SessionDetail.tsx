@@ -42,6 +42,7 @@ export function SessionDetail() {
   useEffect(() => {
     if (!sessionId) return
     let cancelled = false
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setData(null)
     setError(null)
     getAdminSessionDetail(sessionId)

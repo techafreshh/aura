@@ -41,6 +41,19 @@ class TranscriptPayload(BaseModel):
     entries: List[TranscriptEntry]
 
 
+class AdminSessionDetail(BaseModel):
+    session_id: str
+    candidate_name: str
+    user_email: str
+    user_id: str
+    plan: Optional[InterviewPlan] = None
+    report: Optional[FinalReport] = None
+    transcript: Optional[list] = None
+    status: str
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+
+
 class SessionSummary(BaseModel):
     session_id: str
     candidate_name: str

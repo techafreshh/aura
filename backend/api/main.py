@@ -16,7 +16,7 @@ from agent.parser import agent
 from utils.pdf_parser import extract_text_from_pdf
 from utils.storage import archive_report, archive_transcript, get_artifact, archive_pdf
 from utils.tracing import setup_langfuse
-from models.schemas import UploadResponse, InterviewPlan, FinalReport, TranscriptPayload, SessionSummary
+from models.schemas import UploadResponse, InterviewPlan, FinalReport, TranscriptPayload, SessionSummary, AdminSessionDetail
 from api.deps import get_current_user, require_admin
 from api.auth import router as auth_router
 from db.crud import create_session, get_session, get_user_by_id, update_session_report, update_session_transcript, list_user_sessions, list_all_sessions
@@ -311,7 +311,9 @@ async def download_artifact(request: Request, session_id: str, file_type: str, u
 
 
 @app.get("/admin/sessions", response_model=list[SessionSummary])
+@limiter.limit("60/minute")
 async def admin_list_sessions(
+    request: Request,
     user=Depends(get_current_user),
     status: Optional[str] = Query(None, pattern="^(pending|in_progress|completed)$"),
     limit: int = Query(50, le=200),
@@ -324,34 +326,40 @@ async def admin_list_sessions(
 
 
 @app.get("/sessions/mine", response_model=list[SessionSummary])
-async def list_my_sessions(user=Depends(get_current_user)):
+async def list_my_sessions(
+    user=Depends(get_current_user),
+    limit: int = Query(50, le=200),
+    offset: int = Query(0),
+):
     async with async_session() as db:
-        sessions = await list_user_sessions(db, user.id)
+        sessions = await list_user_sessions(db, user.id, limit=limit, offset=offset)
     return [SessionSummary.from_db(s) for s in sessions]
 
 
-@app.get("/admin/sessions/{session_id}/detail")
+@app.get("/admin/sessions/{session_id}/detail", response_model=AdminSessionDetail, status_code=200)
 async def admin_get_session_detail(session_id: str, user=Depends(get_current_user)):
     require_admin(user)
     async with async_session() as db:
         session = await get_session(db, session_id)
-        owner = await get_user_by_id(db, session.user_id) if session else None
 
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    return {
-        "session_id": session.id,
-        "candidate_name": session.candidate_name,
-        "user_email": (owner.email if owner else "") or "",
-        "user_id": session.user_id,
-        "plan": InterviewPlan.model_validate_json(session.plan_json) if session.plan_json else None,
-        "report": FinalReport.model_validate_json(session.report_json) if session.report_json else None,
-        "transcript": json.loads(session.transcript_json) if session.transcript_json else None,
-        "status": session.status,
-        "created_at": session.created_at,
-        "completed_at": session.completed_at,
-    }
+    async with async_session() as db:
+        owner = await get_user_by_id(db, session.user_id)
+
+    return AdminSessionDetail(
+        session_id=session.id,
+        candidate_name=session.candidate_name,
+        user_email=(owner.email if owner else "") or "",
+        user_id=session.user_id,
+        plan=InterviewPlan.model_validate_json(session.plan_json) if session.plan_json else None,
+        report=FinalReport.model_validate_json(session.report_json) if session.report_json else None,
+        transcript=json.loads(session.transcript_json) if session.transcript_json else None,
+        status=session.status,
+        created_at=session.created_at,
+        completed_at=session.completed_at,
+    )
 
 
 @app.get("/admin/sessions/{session_id}/report", response_model=FinalReport)

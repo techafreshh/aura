@@ -38,6 +38,7 @@ export function MyInterviews() {
 
   useEffect(() => {
     let cancelled = false
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSessions(null)
     setError(null)
     listMySessions()
@@ -161,7 +162,7 @@ export function MyInterviews() {
                         <td style={{ textAlign: 'right' }}>
                           {canView ? (
                             <Link
-                              to={`/interview/${s.session_id}/report`}
+                              to={`/my-interviews/${s.session_id}`}
                               className="btn btn-ghost btn-sm"
                               onClick={e => e.stopPropagation()}
                             >
