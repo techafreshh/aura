@@ -100,6 +100,10 @@ The app is served on `127.0.0.1:3000`. Point a reverse proxy (Caddy/nginx) with 
 | `GET` | `/token?session_id=` | Generate LiveKit room token |
 | `POST` | `/report/{session_id}` | Save interview report |
 | `GET` | `/report/{session_id}` | Retrieve interview report |
+| `GET` | `/sessions/mine` | List authenticated user's sessions |
+| `GET` | `/admin/sessions` | List all sessions (admin only, supports `?status=` filter) |
+| `GET` | `/admin/sessions/{session_id}/detail` | Full session detail with transcript (admin only) |
+| `GET` | `/admin/sessions/{session_id}/report` | Session report (admin only) |
 | `GET` | `/health` | Health check |
 
 ## Testing

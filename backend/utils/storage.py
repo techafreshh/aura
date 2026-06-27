@@ -80,5 +80,6 @@ def get_artifact(session_id: str, candidate_name: str, filename: str) -> bytes |
         response.close()
         response.release_conn()
         return data
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to get artifact %s/%s: %s", session_id, filename, e)
         return None

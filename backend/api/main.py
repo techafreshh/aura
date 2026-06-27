@@ -3,6 +3,7 @@ import os
 import json
 import re
 import asyncio
+from typing import Optional
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Query, BackgroundTasks, Depends
 from fastapi.responses import Response, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,10 +16,10 @@ from agent.parser import agent
 from utils.pdf_parser import extract_text_from_pdf
 from utils.storage import archive_report, archive_transcript, get_artifact, archive_pdf
 from utils.tracing import setup_langfuse
-from models.schemas import UploadResponse, InterviewPlan, FinalReport, TranscriptPayload
-from api.deps import get_current_user
+from models.schemas import UploadResponse, InterviewPlan, FinalReport, TranscriptPayload, SessionSummary, AdminSessionDetail
+from api.deps import get_current_user, require_admin
 from api.auth import router as auth_router
-from db.crud import create_session, get_session, get_user_by_id, update_session_report, update_session_transcript
+from db.crud import create_session, get_session, get_user_by_id, update_session_report, update_session_transcript, list_user_sessions, list_all_sessions
 from db.database import async_session
 from utils.config import ENVIRONMENT
 
@@ -307,6 +308,93 @@ async def download_artifact(request: Request, session_id: str, file_type: str, u
     if not data:
         raise HTTPException(status_code=404, detail="File not found")
     return Response(content=data, media_type=content_type, headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+
+@app.get("/admin/sessions", response_model=list[SessionSummary])
+@limiter.limit("60/minute")
+async def admin_list_sessions(
+    request: Request,
+    user=Depends(get_current_user),
+    status: Optional[str] = Query(None, pattern="^(pending|in_progress|completed)$"),
+    limit: int = Query(50, le=200),
+    offset: int = Query(0),
+):
+    """List all interview sessions across all users. Admin-only.
+
+    Supports optional status filtering and pagination.
+    """
+    require_admin(user)
+    async with async_session() as db:
+        sessions = await list_all_sessions(db, limit=limit, offset=offset, status=status)
+    return [SessionSummary.from_db(s) for s in sessions]
+
+
+@app.get("/sessions/mine", response_model=list[SessionSummary])
+@limiter.limit("60/minute")
+async def list_my_sessions(
+    request: Request,
+    user=Depends(get_current_user),
+    limit: int = Query(50, le=200),
+    offset: int = Query(0),
+):
+    """List sessions owned by the current user. Requires authentication."""
+    async with async_session() as db:
+        sessions = await list_user_sessions(db, user.id, limit=limit, offset=offset)
+    return [SessionSummary.from_db(s) for s in sessions]
+
+
+@app.get("/admin/sessions/{session_id}/detail", response_model=AdminSessionDetail, status_code=200)
+@limiter.limit("60/minute")
+async def admin_get_session_detail(request: Request, session_id: str, user=Depends(get_current_user)):
+    """Get full session detail including plan, report, and transcript. Admin-only."""
+    require_admin(user)
+    async with async_session() as db:
+        session = await get_session(db, session_id)
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    async with async_session() as db:
+        owner = await get_user_by_id(db, session.user_id)
+
+    return AdminSessionDetail(
+        session_id=session.id,
+        candidate_name=session.candidate_name,
+        user_email=(owner.email if owner else "") or "",
+        user_id=session.user_id,
+        plan=InterviewPlan.model_validate_json(session.plan_json) if session.plan_json else None,
+        report=FinalReport.model_validate_json(session.report_json) if session.report_json else None,
+        transcript=json.loads(session.transcript_json) if session.transcript_json else None,
+        status=session.status,
+        created_at=session.created_at,
+        completed_at=session.completed_at,
+    )
+
+
+@app.get("/admin/sessions/{session_id}/report", response_model=FinalReport)
+@limiter.limit("60/minute")
+async def admin_get_session_report(request: Request, session_id: str, user=Depends(get_current_user)):
+    """Get the final report for a session. Admin-only.
+
+    Tries the database first, then falls back to MinIO for sessions
+    that were persisted before the report column was added.
+    """
+    require_admin(user)
+    async with async_session() as db:
+        session = await get_session(db, session_id)
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.report_json:
+        return FinalReport.model_validate_json(session.report_json)
+
+    # Fallback to MinIO for sessions persisted before the DB report column existed
+    data = get_artifact(session_id, session.candidate_name, "report.json")
+    if data:
+        return FinalReport.model_validate_json(data.decode())
+
+    raise HTTPException(status_code=404, detail="Report not found")
 
 
 @app.get("/report-stream/{session_id}")

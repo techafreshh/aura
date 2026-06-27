@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import List, Literal, Optional
+from datetime import datetime
+import json
 
 class InterviewPlan(BaseModel):
     candidate_name: str = Field(description="The name of the candidate extracted from the resume.")
@@ -37,3 +39,81 @@ class TranscriptEntry(BaseModel):
 class TranscriptPayload(BaseModel):
     candidate_name: str
     entries: List[TranscriptEntry]
+
+
+class AdminSessionDetail(BaseModel):
+    """Full session detail for admin view, including plan, report, and transcript."""
+
+    session_id: str
+    candidate_name: str
+    user_email: str
+    user_id: str
+    plan: Optional[InterviewPlan] = None
+    report: Optional[FinalReport] = None
+    transcript: Optional[list] = None
+    status: str
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+
+
+class SessionSummary(BaseModel):
+    """Lightweight session summary for list views (admin dashboard and user history).
+
+    Note: `overall_score` and `recommendation` are extracted from the stored
+    report JSON blob, and `duration_seconds` is computed from timestamps.
+    """
+
+    session_id: str
+    candidate_name: str
+    overall_score: Optional[int] = None
+    recommendation: Optional[str] = None
+    status: str
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+    duration_seconds: Optional[int] = None
+
+    @classmethod
+    def from_db(cls, session) -> "SessionSummary":
+        """Build a summary from a database InterviewSession row.
+
+        Extracts score/recommendation from report_json and computes duration.
+        """
+        duration = None
+        if session.completed_at and session.created_at:
+            duration = int((session.completed_at - session.created_at).total_seconds())
+        return cls(
+            session_id=session.id,
+            candidate_name=session.candidate_name,
+            overall_score=_extract_score(session.report_json),
+            recommendation=_extract_recommendation(session.report_json),
+            status=session.status,
+            created_at=session.created_at,
+            completed_at=session.completed_at,
+            duration_seconds=duration,
+        )
+
+
+def _extract_score(report_json: Optional[str]) -> Optional[int]:
+    """Extract overall_score from a stored report JSON string.
+
+    Returns None if the input is empty, None, or contains invalid JSON.
+    """
+    if not report_json:
+        return None
+    try:
+        return json.loads(report_json).get("overall_score")
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def _extract_recommendation(report_json: Optional[str]) -> Optional[str]:
+    """Extract recommendation from a stored report JSON string.
+
+    Returns None if the input is empty, None, or contains invalid JSON.
+    """
+    if not report_json:
+        return None
+    try:
+        return json.loads(report_json).get("recommendation")
+    except (json.JSONDecodeError, TypeError):
+        return None

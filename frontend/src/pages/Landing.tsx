@@ -100,6 +100,8 @@ export function Landing() {
           <nav className="nav-links" aria-label="Primary">
             <a href="#features">Product</a>
             <a href="#stack">Platform</a>
+            {user && <Link to="/my-interviews">My interviews</Link>}
+            {user?.role === 'admin' && <Link to="/admin">Dashboard</Link>}
           </nav>
           <div className="nav-cta">
             {user ? (
@@ -180,6 +182,13 @@ export function Landing() {
               <span className="sep" aria-hidden="true"></span>
               <span>Resume-calibrated</span>
             </div>
+            {user && (
+              <div style={{ marginTop: 14 }}>
+                <Link to="/my-interviews" className="btn btn-sm btn-ghost">
+                  View past interviews →
+                </Link>
+              </div>
+            )}
           </div>
 
           <div className="orb-stage reveal" role="img" aria-label="Aura, an indigo orb pulsing with concentric rings">

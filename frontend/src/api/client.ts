@@ -77,4 +77,51 @@ export const uploadPdf = async (sessionId: string, pdfBlob: Blob): Promise<void>
   await api.post(`/upload-pdf/${sessionId}`, formData);
 };
 
+export interface SessionSummary {
+  session_id: string;
+  candidate_name: string;
+  overall_score: number | null;
+  recommendation: 'Hire' | 'No Hire' | 'Strong Hire' | 'Hold' | null;
+  status: 'pending' | 'in_progress' | 'completed';
+  created_at: string;
+  completed_at: string | null;
+  duration_seconds: number | null;
+}
+
+export interface TranscriptEntryRead {
+  speaker: string;
+  text: string;
+  timestamp_s: number;
+}
+
+export interface SessionDetail {
+  session_id: string;
+  candidate_name: string;
+  user_email: string;
+  user_id: string;
+  plan: InterviewPlan | null;
+  report: FinalReport | null;
+  transcript: TranscriptEntryRead[] | null;
+  status: 'pending' | 'in_progress' | 'completed';
+  created_at: string;
+  completed_at: string | null;
+}
+
+export const listAdminSessions = async (
+  params: { status?: 'pending' | 'in_progress' | 'completed'; limit?: number; offset?: number } = {}
+): Promise<SessionSummary[]> => {
+  const response = await api.get<SessionSummary[]>('/admin/sessions', { params });
+  return response.data;
+};
+
+export const listMySessions = async (): Promise<SessionSummary[]> => {
+  const response = await api.get<SessionSummary[]>('/sessions/mine');
+  return response.data;
+};
+
+export const getAdminSessionDetail = async (sessionId: string): Promise<SessionDetail> => {
+  const response = await api.get<SessionDetail>(`/admin/sessions/${sessionId}/detail`);
+  return response.data;
+};
+
 export default api;
