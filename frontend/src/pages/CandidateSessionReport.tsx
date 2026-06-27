@@ -3,10 +3,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { getReport, type FinalReport } from '@/api/client'
 import { ReportView } from '@/components/interview/ReportView'
 import { useAuth } from '@/contexts/AuthContext'
+import { initials } from '@/lib/dashboard-utils'
 import '@/styles/aura-dashboard.css'
-
-const initials = (name: string) =>
-  name.split(' ').map(s => s[0]).slice(0, 2).join('').toUpperCase() || '?'
 
 export function CandidateSessionReport() {
   const { user, logout } = useAuth()
@@ -25,6 +23,11 @@ export function CandidateSessionReport() {
       .then(r => { if (!cancelled) setReport(r) })
       .catch(err => {
         if (cancelled) return
+        console.error('Failed to load session report:', {
+          sessionId,
+          status: err?.response?.status,
+          message: err?.message
+        })
         if (err?.response?.status === 401 || err?.response?.status === 403) {
           navigate('/', { replace: true })
           return

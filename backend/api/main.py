@@ -319,6 +319,10 @@ async def admin_list_sessions(
     limit: int = Query(50, le=200),
     offset: int = Query(0),
 ):
+    """List all interview sessions across all users. Admin-only.
+
+    Supports optional status filtering and pagination.
+    """
     require_admin(user)
     async with async_session() as db:
         sessions = await list_all_sessions(db, limit=limit, offset=offset, status=status)
@@ -326,18 +330,23 @@ async def admin_list_sessions(
 
 
 @app.get("/sessions/mine", response_model=list[SessionSummary])
+@limiter.limit("60/minute")
 async def list_my_sessions(
+    request: Request,
     user=Depends(get_current_user),
     limit: int = Query(50, le=200),
     offset: int = Query(0),
 ):
+    """List sessions owned by the current user. Requires authentication."""
     async with async_session() as db:
         sessions = await list_user_sessions(db, user.id, limit=limit, offset=offset)
     return [SessionSummary.from_db(s) for s in sessions]
 
 
 @app.get("/admin/sessions/{session_id}/detail", response_model=AdminSessionDetail, status_code=200)
-async def admin_get_session_detail(session_id: str, user=Depends(get_current_user)):
+@limiter.limit("60/minute")
+async def admin_get_session_detail(request: Request, session_id: str, user=Depends(get_current_user)):
+    """Get full session detail including plan, report, and transcript. Admin-only."""
     require_admin(user)
     async with async_session() as db:
         session = await get_session(db, session_id)
@@ -363,7 +372,13 @@ async def admin_get_session_detail(session_id: str, user=Depends(get_current_use
 
 
 @app.get("/admin/sessions/{session_id}/report", response_model=FinalReport)
-async def admin_get_session_report(session_id: str, user=Depends(get_current_user)):
+@limiter.limit("60/minute")
+async def admin_get_session_report(request: Request, session_id: str, user=Depends(get_current_user)):
+    """Get the final report for a session. Admin-only.
+
+    Tries the database first, then falls back to MinIO for sessions
+    that were persisted before the report column was added.
+    """
     require_admin(user)
     async with async_session() as db:
         session = await get_session(db, session_id)

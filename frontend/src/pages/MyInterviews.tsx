@@ -2,32 +2,8 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { listMySessions, type SessionSummary } from '@/api/client'
 import { useAuth } from '@/contexts/AuthContext'
+import { recPill, statusPill, formatDate, initials } from '@/lib/dashboard-utils'
 import '@/styles/aura-dashboard.css'
-
-const recPill = (rec: SessionSummary['recommendation']) => {
-  switch (rec) {
-    case 'Strong Hire': return { cls: 'pill pill-success', text: 'Strong Hire' }
-    case 'Hire':        return { cls: 'pill pill-success', text: 'Hire' }
-    case 'Hold':        return { cls: 'pill pill-warn',    text: 'Hold' }
-    case 'No Hire':     return { cls: 'pill pill-danger',  text: 'No Hire' }
-    default:            return { cls: 'pill pill-muted',   text: '—' }
-  }
-}
-
-const statusPill = (status: SessionSummary['status']) => {
-  switch (status) {
-    case 'completed':   return { cls: 'pill pill-success', text: 'Completed' }
-    case 'in_progress': return { cls: 'pill pill-accent',  text: 'In Progress' }
-    case 'pending':     return { cls: 'pill pill-muted',   text: 'Pending' }
-    default:            return { cls: 'pill pill-muted',   text: status }
-  }
-}
-
-const formatDate = (iso: string) =>
-  new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-
-const initials = (name: string) =>
-  name.split(' ').map(s => s[0]).slice(0, 2).join('').toUpperCase() || '?'
 
 export function MyInterviews() {
   const { user, logout } = useAuth()
@@ -45,7 +21,11 @@ export function MyInterviews() {
       .then(data => { if (!cancelled) setSessions(data) })
       .catch(err => {
         if (cancelled) return
-        if (err?.response?.status === 401) {
+        console.error('Failed to load user sessions:', {
+          status: err?.response?.status,
+          message: err?.message
+        })
+        if (err?.response?.status === 401 || err?.response?.status === 403) {
           navigate('/', { replace: true })
           return
         }

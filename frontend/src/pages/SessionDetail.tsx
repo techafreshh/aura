@@ -3,34 +3,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { getAdminSessionDetail, type SessionDetail as SessionDetailData, type TranscriptEntryRead } from '@/api/client'
 import { ReportView } from '@/components/interview/ReportView'
 import { useAuth } from '@/contexts/AuthContext'
+import { statusPill, formatDateTime, formatDuration, initials } from '@/lib/dashboard-utils'
 import '@/styles/aura-dashboard.css'
-
-const formatDateTime = (iso: string | null) => {
-  if (!iso) return '—'
-  return new Date(iso).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
-const formatDuration = (secs: number | null | undefined) => {
-  if (secs == null) return '—'
-  if (secs < 60) return `${secs}s`
-  const m = Math.floor(secs / 60)
-  const s = secs % 60
-  if (m < 60) return `${m}m ${s}s`
-  const h = Math.floor(m / 60)
-  return `${h}h ${m % 60}m`
-}
-
-const statusPill = (status: SessionDetailData['status']) => {
-  switch (status) {
-    case 'completed':   return { cls: 'pill pill-success', text: 'Completed' }
-    case 'in_progress': return { cls: 'pill pill-accent',  text: 'In Progress' }
-    case 'pending':     return { cls: 'pill pill-muted',   text: 'Pending' }
-    default:            return { cls: 'pill pill-muted',   text: status }
-  }
-}
-
-const initials = (name: string) =>
-  name.split(' ').map(s => s[0]).slice(0, 2).join('').toUpperCase() || '?'
 
 export function SessionDetail() {
   const { user, logout } = useAuth()
@@ -49,6 +23,11 @@ export function SessionDetail() {
       .then(d => { if (!cancelled) setData(d) })
       .catch(err => {
         if (cancelled) return
+        console.error('Failed to load session detail:', {
+          sessionId,
+          status: err?.response?.status,
+          message: err?.message
+        })
         if (err?.response?.status === 401 || err?.response?.status === 403) {
           navigate('/', { replace: true })
           return
