@@ -43,6 +43,13 @@ sentry_sdk.init(
 logger = logging.getLogger("voice-agent")
 logger.setLevel(logging.INFO)
 
+# Keep realtime providers configurable so cost/quality tradeoffs can be changed
+# without modifying the worker image. Fish Audio's free model is the default TTS.
+STT_MODEL = os.getenv("LIVEKIT_STT_MODEL", "deepgram/nova-3")
+TTS_MODEL = os.getenv("LIVEKIT_TTS_MODEL", "fishaudio/s2.1-pro-free")
+TTS_VOICE = os.getenv("LIVEKIT_TTS_VOICE", "9a9cf47702da476aa4629e2506d4a857")
+TTS_LANGUAGE = os.getenv("LIVEKIT_TTS_LANGUAGE", "en")
+
 # Initialize Langfuse at module level so Agent.instrument_all() patches agents before any room connects
 _langfuse_provider = setup_langfuse()
 
@@ -204,9 +211,13 @@ async def entrypoint(ctx: JobContext):
     # Initialize the AgentSession
     session = voice.AgentSession(
         vad=silero.VAD.load(),
-        stt=inference.STT(model="deepgram/nova-2"),
+        stt=inference.STT(model=STT_MODEL),
         llm=inference.LLM(model="openai/gpt-4o-mini"),
-        tts=inference.TTS(model="cartesia/sonic"),
+        tts=inference.TTS(
+            model=TTS_MODEL,
+            voice=TTS_VOICE,
+            language=TTS_LANGUAGE,
+        ),
     )
 
     workflow = InterviewWorkflow(plan=plan, session=session, session_id=session_id)

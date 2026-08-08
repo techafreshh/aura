@@ -28,7 +28,7 @@ A real-time voice AI application that conducts interactive job interviews. Uploa
 - **Frontend** — React 19, Vite, Tailwind, Shadcn UI, LiveKit Components
 - **Backend** — FastAPI (upload, token generation, report storage)
 - **Worker** — LiveKit VoicePipelineAgent with Pydantic AI reasoning agents
-- **AI Models** — GPT-4o-mini (voice), Gemini 2.0 Flash via OpenRouter (reasoning), Deepgram (STT), Cartesia (TTS)
+- **AI Models** — GPT-4o-mini (voice), Gemini 2.0 Flash via OpenRouter (reasoning), Deepgram Nova-3 (STT), Fish Audio S2.1 Pro Free (TTS)
 
 ## Quick Start
 
@@ -79,6 +79,10 @@ The app is served on `127.0.0.1:3000`. Point a reverse proxy (Caddy/nginx) with 
 |----------|---------|
 | `OPENROUTER_API_KEY` | Pydantic AI agents (parser, evaluator, reporter) |
 | `OPENAI_API_KEY` | LiveKit plugins (STT, LLM, TTS) |
+| `LIVEKIT_STT_MODEL` | LiveKit Inference STT model (default: `deepgram/nova-3`) |
+| `LIVEKIT_TTS_MODEL` | LiveKit Inference TTS model (default: `fishaudio/s2.1-pro-free`) |
+| `LIVEKIT_TTS_VOICE` | Fish Audio voice ID used by the realtime interviewer |
+| `LIVEKIT_TTS_LANGUAGE` | TTS language (default: `en`) |
 | `LIVEKIT_URL` | LiveKit Cloud WebSocket URL |
 | `LIVEKIT_API_KEY` | LiveKit API key |
 | `LIVEKIT_API_SECRET` | LiveKit API secret |
