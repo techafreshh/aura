@@ -3,6 +3,8 @@ services:
     build: ./backend
     container_name: aura-backend
     env_file: .env
+    volumes:
+      - aura-data:/app/data
     restart: unless-stopped
 
   worker:
@@ -33,3 +35,6 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+
+volumes:
+  aura-data:

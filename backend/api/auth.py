@@ -4,7 +4,7 @@ import urllib.parse
 from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.responses import RedirectResponse
 from authlib.integrations.starlette_client import OAuth
-from db.crud import upsert_user
+from db.crud import upsert_oauth_user
 from db.database import async_session
 from api.deps import get_current_user
 from utils.config import JWT_SECRET
@@ -13,7 +13,7 @@ import jwt
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "")
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().lower()
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
@@ -93,23 +93,28 @@ async def oauth_callback(request: Request, provider: str):
         name = user_info.get("name", "")
         avatar_url = user_info.get("picture")
         provider_id = user_info["sub"]
+        if user_info.get("email_verified") is not True:
+            raise HTTPException(400, "OAuth email is not verified")
     else:
         resp = await client.get("user", token=token)
         profile = resp.json()
-        email = profile.get("email") or ""
+        emails_resp = await client.get("user/emails", token=token)
+        emails = emails_resp.json()
+        email = next((e["email"] for e in emails if e.get("primary") and e.get("verified")), "")
         if not email:
-            emails_resp = await client.get("user/emails", token=token)
-            emails = emails_resp.json()
-            email = next((e["email"] for e in emails if e.get("primary")), emails[0]["email"] if emails else "")
+            email = next((e["email"] for e in emails if e.get("verified")), "")
+        if not email:
+            raise HTTPException(400, "Could not retrieve a verified email from GitHub")
         name = profile.get("name") or profile.get("login", "")
         avatar_url = profile.get("avatar_url")
         provider_id = str(profile["id"])
 
     if not email:
         raise HTTPException(400, "Could not retrieve email from provider")
+    email = email.strip().lower()
 
     async with async_session() as db:
-        user = await upsert_user(
+        user = await upsert_oauth_user(
             db,
             email=email,
             name=name,
@@ -117,7 +122,7 @@ async def oauth_callback(request: Request, provider: str):
             provider_id=provider_id,
             avatar_url=avatar_url,
         )
-        if user.email == ADMIN_EMAIL:
+        if ADMIN_EMAIL and user.email.lower() == ADMIN_EMAIL:
             user.role = "admin"
             await db.commit()
 

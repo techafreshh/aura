@@ -3,7 +3,9 @@ import api.main as main_module
 from httpx import AsyncClient, ASGITransport
 from api.auth import _make_jwt
 from db.database import async_session
-from db.crud import upsert_user, get_user_by_id, create_session, get_session
+from db.crud import upsert_user, upsert_oauth_user, get_user_by_id, create_session, get_session
+from db.models import OAuthIdentity
+from sqlalchemy import select
 
 
 def _get_app():
@@ -131,6 +133,48 @@ class TestCRUD:
             found = await get_session(db, session.id)
             assert found is not None
             assert found.candidate_name == "Session Test"
+
+    @pytest.mark.asyncio
+    async def test_oauth_providers_with_same_verified_email_link_to_one_user(self):
+        async with async_session() as db:
+            google_user = await upsert_oauth_user(
+                db, email="linked@example.com", name="Linked", provider="google", provider_id="google-1"
+            )
+            github_user = await upsert_oauth_user(
+                db, email="linked@example.com", name="Linked", provider="github", provider_id="github-1"
+            )
+            identities = await db.execute(
+                select(OAuthIdentity).where(OAuthIdentity.user_id == google_user.id)
+            )
+
+        assert github_user.id == google_user.id
+        assert {(identity.provider, identity.provider_id) for identity in identities.scalars()} == {
+            ("google", "google-1"),
+            ("github", "github-1"),
+        }
+
+    @pytest.mark.asyncio
+    async def test_oauth_linking_matches_legacy_email_case_insensitively(self):
+        async with async_session() as db:
+            legacy = await upsert_user(
+                db, email="Legacy.Case@Example.com", name="Legacy", provider="google", provider_id="legacy-google"
+            )
+            linked = await upsert_oauth_user(
+                db, email="legacy.case@example.com", name="Legacy", provider="github", provider_id="legacy-github"
+            )
+        assert linked.id == legacy.id
+
+    @pytest.mark.asyncio
+    async def test_create_session_accepts_public_session_id(self):
+        async with async_session() as db:
+            session = await create_session(
+                db,
+                session_id="public-session-id",
+                user_id="test-user-id",
+                candidate_name="Public ID",
+                plan_json='{"candidate_name":"Public ID","extracted_skills":[],"question_bank":[]}',
+            )
+        assert session.id == "public-session-id"
 
 
 class TestProtectedEndpoints:

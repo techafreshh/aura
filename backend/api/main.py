@@ -7,6 +7,7 @@ from typing import Optional
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Query, BackgroundTasks, Depends
 from fastapi.responses import Response, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -15,6 +16,7 @@ from langfuse import propagate_attributes
 from agent.parser import agent
 from utils.pdf_parser import extract_text_from_pdf
 from utils.storage import archive_report, archive_transcript, get_artifact, archive_pdf
+from utils.pdf_report import generate_report_pdf
 from utils.tracing import setup_langfuse
 from models.schemas import UploadResponse, InterviewPlan, FinalReport, TranscriptPayload, SessionSummary, AdminSessionDetail
 from api.deps import get_current_user, require_admin
@@ -40,6 +42,12 @@ app = FastAPI(title="AI Interviewer API")
 setup_langfuse()
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.getenv("OAUTH_SESSION_SECRET") or os.getenv("JWT_SECRET") or "development-oauth-session-secret",
+    https_only=ENVIRONMENT == "production",
+    same_site="lax",
+)
 
 app.include_router(auth_router)
 
@@ -115,6 +123,7 @@ async def upload_resume(
                 user_id=user.id,
                 candidate_name=plan.candidate_name,
                 plan_json=plan.model_dump_json(),
+                session_id=session_id,
             )
 
         return UploadResponse(
@@ -155,7 +164,18 @@ async def get_plan(session_id: str, request: Request, user=Depends(get_current_u
 
 @app.get("/token")
 @limiter.limit("5/hour")
-async def get_token(request: Request, session_id: str = Query(..., description="The session ID/room name to join")):
+async def get_token(
+    request: Request,
+    session_id: str = Query(..., description="The session ID/room name to join"),
+    user=Depends(get_current_user),
+):
+    async with async_session() as db:
+        session = await get_session(db, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if user.role != "admin" and session.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
     api_key = os.getenv("LIVEKIT_API_KEY")
     api_secret = os.getenv("LIVEKIT_API_SECRET")
 
@@ -204,7 +224,10 @@ async def save_report(
         await update_session_report(db, session_id, report.model_dump_json())
 
     def _archive():
-        archive_report(session_id, report.model_dump(), b"")
+        try:
+            archive_report(session_id, report.model_dump(), generate_report_pdf(report))
+        except Exception as exc:
+            print(f"REPORT_ARCHIVE_ERROR: session_id={session_id} error={exc}")
 
     background_tasks.add_task(_archive)
     return {"status": "success"}
@@ -257,7 +280,7 @@ async def save_transcript(
     def _archive():
         archive_transcript(
             session_id,
-            payload.candidate_name,
+            session.candidate_name,
             transcript_data.encode(),
         )
     background_tasks.add_task(_archive)
@@ -305,6 +328,10 @@ async def download_artifact(request: Request, session_id: str, file_type: str, u
         raise HTTPException(status_code=400, detail="Invalid file type. Use: transcript, pdf")
     filename, content_type = entry
     data = get_artifact(session_id, session.candidate_name, filename)
+    if not data and file_type == "pdf" and session.report_json:
+        data = generate_report_pdf(FinalReport.model_validate_json(session.report_json))
+    if not data and file_type == "transcript" and session.transcript_json:
+        data = session.transcript_json.encode()
     if not data:
         raise HTTPException(status_code=404, detail="File not found")
     return Response(content=data, media_type=content_type, headers={"Content-Disposition": f"attachment; filename={filename}"})
@@ -341,6 +368,33 @@ async def list_my_sessions(
     async with async_session() as db:
         sessions = await list_user_sessions(db, user.id, limit=limit, offset=offset)
     return [SessionSummary.from_db(s) for s in sessions]
+
+
+@app.get("/sessions/{session_id}/detail", response_model=AdminSessionDetail)
+@limiter.limit("60/minute")
+async def get_my_session_detail(request: Request, session_id: str, user=Depends(get_current_user)):
+    """Return a session's report and transcript to its owner or an admin."""
+    async with async_session() as db:
+        session = await get_session(db, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if user.role != "admin" and session.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    async with async_session() as db:
+        owner = await get_user_by_id(db, session.user_id)
+    return AdminSessionDetail(
+        session_id=session.id,
+        candidate_name=session.candidate_name,
+        user_email=(owner.email if owner else "") or "",
+        user_id=session.user_id,
+        plan=InterviewPlan.model_validate_json(session.plan_json) if session.plan_json else None,
+        report=FinalReport.model_validate_json(session.report_json) if session.report_json else None,
+        transcript=json.loads(session.transcript_json) if session.transcript_json else None,
+        status=session.status,
+        created_at=session.created_at,
+        completed_at=session.completed_at,
+    )
 
 
 @app.get("/admin/sessions/{session_id}/detail", response_model=AdminSessionDetail, status_code=200)

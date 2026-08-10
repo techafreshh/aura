@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from db.models import User, InterviewSession
+from db.models import User, OAuthIdentity, InterviewSession
 
 
 async def upsert_user(
@@ -35,6 +36,71 @@ async def upsert_user(
     return user
 
 
+async def upsert_oauth_user(
+    db: AsyncSession,
+    *,
+    email: str,
+    name: str,
+    provider: str,
+    provider_id: str,
+    avatar_url: str | None = None,
+) -> User:
+    """Resolve a provider identity, linking verified providers by email."""
+    email = email.strip().lower()
+    identity_result = await db.execute(
+        select(OAuthIdentity).where(
+            OAuthIdentity.provider == provider,
+            OAuthIdentity.provider_id == provider_id,
+        )
+    )
+    identity = identity_result.scalar_one_or_none()
+    if identity:
+        user = await get_user_by_id(db, identity.user_id)
+        if user:
+            user.name, user.avatar_url = name, avatar_url
+            user.last_login_at = datetime.now(timezone.utc)
+            identity.email = email
+            await db.commit()
+            await db.refresh(user)
+            return user
+
+    user_result = await db.execute(select(User).where(func.lower(User.email) == email))
+    user = user_result.scalar_one_or_none()
+    if not user:
+        user = User(email=email, name=name, provider=provider, provider_id=provider_id, avatar_url=avatar_url)
+        db.add(user)
+        await db.flush()
+    else:
+        user.name, user.avatar_url = name, avatar_url
+        user.last_login_at = datetime.now(timezone.utc)
+
+    db.add(OAuthIdentity(user_id=user.id, provider=provider, provider_id=provider_id, email=email))
+    try:
+        await db.commit()
+    except IntegrityError:
+        # OAuth callbacks can be retried or completed in concurrent tabs.
+        await db.rollback()
+        existing_identity = await db.execute(
+            select(OAuthIdentity).where(
+                OAuthIdentity.provider == provider,
+                OAuthIdentity.provider_id == provider_id,
+            )
+        )
+        identity = existing_identity.scalar_one_or_none()
+        if identity:
+            existing_user = await get_user_by_id(db, identity.user_id)
+            if existing_user:
+                return existing_user
+        user_result = await db.execute(select(User).where(func.lower(User.email) == email))
+        user = user_result.scalar_one_or_none()
+        if not user:
+            raise
+        db.add(OAuthIdentity(user_id=user.id, provider=provider, provider_id=provider_id, email=email))
+        await db.commit()
+    await db.refresh(user)
+    return user
+
+
 async def get_user_by_id(db: AsyncSession, user_id: str) -> User | None:
     result = await db.execute(select(User).where(User.id == user_id))
     return result.scalar_one_or_none()
@@ -46,12 +112,14 @@ async def create_session(
     user_id: str,
     candidate_name: str,
     plan_json: str,
+    session_id: str | None = None,
 ) -> InterviewSession:
     session = InterviewSession(
         user_id=user_id,
         candidate_name=candidate_name,
         plan_json=plan_json,
         status="pending",
+        **({"id": session_id} if session_id else {}),
     )
     db.add(session)
     await db.commit()
