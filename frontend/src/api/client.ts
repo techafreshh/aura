@@ -67,8 +67,16 @@ export const getReport = async (sessionId: string): Promise<FinalReport> => {
   return response.data;
 };
 
-export const getDownloadUrl = (sessionId: string, fileType: 'pdf' | 'transcript'): string => {
-  return `${BASE_URL}/download/${sessionId}/${fileType}`;
+export const downloadArtifact = async (sessionId: string, fileType: 'pdf' | 'transcript'): Promise<void> => {
+  const response = await api.get(`/download/${sessionId}/${fileType}`, { responseType: 'blob' });
+  const url = URL.createObjectURL(response.data);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileType === 'pdf' ? 'report.pdf' : 'transcript.json';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 };
 
 export const uploadPdf = async (sessionId: string, pdfBlob: Blob): Promise<void> => {
@@ -121,6 +129,11 @@ export const listMySessions = async (): Promise<SessionSummary[]> => {
 
 export const getAdminSessionDetail = async (sessionId: string): Promise<SessionDetail> => {
   const response = await api.get<SessionDetail>(`/admin/sessions/${sessionId}/detail`);
+  return response.data;
+};
+
+export const getMySessionDetail = async (sessionId: string): Promise<SessionDetail> => {
+  const response = await api.get<SessionDetail>(`/sessions/${sessionId}/detail`);
   return response.data;
 };
 

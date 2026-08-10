@@ -119,6 +119,30 @@ async def test_download_missing_artifact_returns_404():
     assert response.status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_download_transcript_falls_back_to_database():
+    session_id = await _create_test_session_with_report()
+    payload = {"candidate_name": "Jane Smith", "entries": [{"speaker": "Candidate", "text": "Stored", "timestamp_s": 2.0}]}
+    with patch("api.main.archive_transcript"):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            await ac.post(f"/transcript/{session_id}", json=payload)
+    with patch("api.main.get_artifact", return_value=None):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.get(f"/download/{session_id}/transcript")
+    assert response.status_code == 200
+    assert json.loads(response.content)[0]["text"] == "Stored"
+
+
+@pytest.mark.asyncio
+async def test_download_pdf_falls_back_to_database_report():
+    session_id = await _create_test_session_with_report()
+    with patch("api.main.get_artifact", return_value=None):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.get(f"/download/{session_id}/pdf")
+    assert response.status_code == 200
+    assert response.content.startswith(b"%PDF")
+
+
 @patch("utils.storage.Minio")
 def test_archive_transcript_calls_put_object(mock_minio_cls):
     mock_client = MagicMock()
