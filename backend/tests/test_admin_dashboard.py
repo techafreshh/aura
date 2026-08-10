@@ -253,6 +253,51 @@ async def test_sessions_mine_requires_auth():
 
 
 @pytest.mark.asyncio
+async def test_candidate_session_detail_returns_report_and_transcript():
+    from tests.conftest import TEST_USER
+    import json
+
+    plan = InterviewPlan(candidate_name="Mine Detail", extracted_skills=["Python"], question_bank=["Q1"])
+    report = FinalReport(
+        candidate_name="Mine Detail", overall_score=82,
+        section_grades=[SectionGrade(section_name="Technical", score=8, comments="Good")],
+        strengths=["Python"], weaknesses=[], recommendation="Hire", summary="Good interview.",
+    )
+    async with async_session() as db:
+        session = await create_session(db, user_id=TEST_USER.id, candidate_name="Mine Detail", plan_json=plan.model_dump_json())
+        await update_session_report(db, session.id, report.model_dump_json())
+        stored = await db.get(type(session), session.id)
+        stored.transcript_json = json.dumps([{"speaker": "Candidate", "text": "Hello", "timestamp_s": 1.2}])
+        await db.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.get(f"/sessions/{session.id}/detail")
+    assert response.status_code == 200
+    assert response.json()["report"]["overall_score"] == 82
+    assert response.json()["transcript"][0]["text"] == "Hello"
+
+
+@pytest.mark.asyncio
+async def test_candidate_session_detail_rejects_other_users_session():
+    from tests.conftest import TEST_USER
+
+    async def _override():
+        return _candidate_user()
+
+    app.dependency_overrides[get_current_user] = _override
+    _, session = await _seed_other_user_with_session("private@example.com", "Private")
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.get(f"/sessions/{session.id}/detail")
+        assert response.status_code == 403
+    finally:
+        async def _restore():
+            return TEST_USER
+
+        app.dependency_overrides[get_current_user] = _restore
+
+
+@pytest.mark.asyncio
 async def test_admin_get_session_detail():
     from tests.conftest import TEST_USER
 

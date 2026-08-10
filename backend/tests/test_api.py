@@ -28,21 +28,49 @@ async def test_upload_non_pdf():
 
 @pytest.mark.asyncio
 async def test_get_token_missing_credentials():
+    plan = InterviewPlan(candidate_name="Token Test", extracted_skills=[], question_bank=[])
+    async with async_session() as db:
+        session = await create_session(db, user_id="test-user-id", candidate_name="Token Test", plan_json=plan.model_dump_json())
     with patch.dict(os.environ, {"LIVEKIT_API_KEY": "", "LIVEKIT_API_SECRET": ""}):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-            response = await ac.get("/token?session_id=test-session")
+            response = await ac.get(f"/token?session_id={session.id}")
         assert response.status_code == 500
         assert "LiveKit credentials are not configured" in response.json()["detail"]
 
 
 @pytest.mark.asyncio
 async def test_get_token_success():
+    plan = InterviewPlan(candidate_name="Token Success", extracted_skills=[], question_bank=[])
+    async with async_session() as db:
+        session = await create_session(db, user_id="test-user-id", candidate_name="Token Success", plan_json=plan.model_dump_json())
     with patch.dict(os.environ, {"LIVEKIT_API_KEY": "fake_key", "LIVEKIT_API_SECRET": "fake_secret"}):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-            response = await ac.get("/token?session_id=test-session")
+            response = await ac.get(f"/token?session_id={session.id}")
         assert response.status_code == 200
         assert "token" in response.json()
         assert isinstance(response.json()["token"], str)
+
+
+@pytest.mark.asyncio
+async def test_get_token_rejects_another_users_session():
+    from api.deps import get_current_user
+
+    class Candidate:
+        id = "candidate-user-id"
+        role = "candidate"
+
+    plan = InterviewPlan(candidate_name="Private Room", extracted_skills=[], question_bank=[])
+    async with async_session() as db:
+        session = await create_session(db, user_id="another-user-id", candidate_name="Private Room", plan_json=plan.model_dump_json())
+
+    saved = app.dependency_overrides[get_current_user]
+    app.dependency_overrides[get_current_user] = lambda: Candidate()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.get(f"/token?session_id={session.id}")
+        assert response.status_code == 403
+    finally:
+        app.dependency_overrides[get_current_user] = saved
 
 
 @pytest.mark.asyncio

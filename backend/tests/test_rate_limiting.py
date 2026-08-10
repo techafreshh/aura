@@ -33,13 +33,20 @@ def test_limiter_falls_back_to_memory_when_no_redis(monkeypatch):
 async def test_rate_limited_endpoint_returns_429():
     """Rate-limited endpoints should return 429 after exceeding limit."""
     from api.main import app
+    from db.crud import create_session
+    from db.database import async_session
+    from models.schemas import InterviewPlan
+
+    plan = InterviewPlan(candidate_name="Rate Limit", extracted_skills=[], question_bank=[])
+    async with async_session() as db:
+        session = await create_session(db, user_id="test-user-id", candidate_name="Rate Limit", plan_json=plan.model_dump_json())
 
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as ac:
         # /token is limited to 5/hour - send 6 requests
         for _ in range(6):
-            response = await ac.get("/token", params={"session_id": "test"})
+            response = await ac.get("/token", params={"session_id": session.id})
 
         # 6th request should be rate limited
         assert response.status_code == 429

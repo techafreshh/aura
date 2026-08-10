@@ -1,4 +1,5 @@
 import io
+from xml.sax.saxutils import escape
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet
@@ -14,7 +15,7 @@ def generate_report_pdf(report: FinalReport) -> bytes:
     elements = []
 
     # Title
-    elements.append(Paragraph(f"Interview Report: {report.candidate_name}", styles["Title"]))
+    elements.append(Paragraph(f"Interview Report: {escape(report.candidate_name)}", styles["Title"]))
     elements.append(Spacer(1, 12))
 
     # Score and recommendation
@@ -38,18 +39,18 @@ def generate_report_pdf(report: FinalReport) -> bytes:
     # Strengths
     elements.append(Paragraph("Strengths", styles["Heading3"]))
     for s in report.strengths:
-        elements.append(Paragraph(f"• {s}", styles["Normal"]))
+        elements.append(Paragraph(f"• {escape(s)}", styles["Normal"]))
     elements.append(Spacer(1, 8))
 
     # Weaknesses
     elements.append(Paragraph("Weaknesses", styles["Heading3"]))
     for w in report.weaknesses:
-        elements.append(Paragraph(f"• {w}", styles["Normal"]))
+        elements.append(Paragraph(f"• {escape(w)}", styles["Normal"]))
     elements.append(Spacer(1, 12))
 
     # Summary
     elements.append(Paragraph("Summary", styles["Heading3"]))
-    elements.append(Paragraph(report.summary, styles["Normal"]))
+    elements.append(Paragraph(escape(report.summary), styles["Normal"]))
 
     doc.build(elements)
     return buf.getvalue()
