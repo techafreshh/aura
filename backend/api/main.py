@@ -178,6 +178,7 @@ async def get_token(
 ):
     async with async_session() as db:
         session = await get_session(db, session_id)
+
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     if user.role != "admin" and session.user_id != user.id:
@@ -192,10 +193,11 @@ async def get_token(
             detail="LiveKit credentials are not configured on the server.",
         )
 
+    identity = getattr(user, "id", "participant") or "participant"
     try:
         token = (
             AccessToken(api_key, api_secret)
-            .with_identity("participant")
+            .with_identity(identity)
             .with_name("Candidate")
             .with_grants(VideoGrants(room_join=True, room=session_id))
             .to_jwt()

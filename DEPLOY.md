@@ -7,7 +7,7 @@
 - LiveKit Cloud account
 - OpenRouter API key
 - OpenAI API key
-- MinIO instance (for report archival) — requires `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`
+- MinIO instance (for report archival) — requires `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`, plus `MINIO_SECURE=true` when the endpoint uses `https://` (leave `false` for local `minio:9000` over HTTP)
 - **OAuth provider accounts (Google + GitHub)** for user authentication (required after PR #10)
 - A persistent volume or host path mounted at `backend/data/` for the SQLite database
 
@@ -20,7 +20,7 @@ git clone <repo-url>
 cd AI-Interviewer
 ```
 
-2. Create your environment file:
+2. Create your environment file (the root `.env` is what `docker compose` reads via `env_file: .env` — `backend/.env.example` is the reference for backend-only local runs):
 
 ```bash
 cp .env.example .env
@@ -70,7 +70,7 @@ git pull
 docker compose up -d --build
 ```
 
-> **Heads up on rolling updates (post PR #10):** all previously-open API endpoints now require authentication. Any unupdated client (monitoring probes, e2e tests, internal tooling, curl scripts) that hits `/upload`, `/plan/{id}`, `/report/{id}`, `/transcript/{id}`, `/upload-pdf/{id}`, `/download/{id}/{type}`, or `/report-stream/{id}` without an `Authorization: Bearer <jwt>` (or the worker API key) will start receiving `401`. Coordinate a restart window if any in-flight interviews are active — the previous in-memory `plans`/`reports` stores were replaced by SQLite, so on-disk interview state on a prior deploy is orphaned until those sessions finish.
+> **Heads up on rolling updates (post PR #10 + token hardening):** all previously-open API endpoints now require authentication. Any unupdated client (monitoring probes, e2e tests, internal tooling, curl scripts) that hits `/upload`, `/plan/{id}`, `/token`, `/report/{id}`, `/transcript/{id}`, `/upload-pdf/{id}`, `/download/{id}/{type}`, or `/report-stream/{id}` without an `Authorization: Bearer <jwt>` (or the worker API key) will start receiving `401` (`403` for non-owners on `/token`). Coordinate a restart window if any in-flight interviews are active — the previous in-memory `plans`/`reports` stores were replaced by SQLite, so on-disk interview state on a prior deploy is orphaned until those sessions finish.
 
 ## Post-Deployment Verification
 
@@ -87,7 +87,8 @@ After the first deploy with PR #10, verify the auth path end-to-end:
 
 - **Engine:** SQLite via SQLAlchemy async (`aiosqlite`).
 - **Location:** `backend/data/aura.db` (gitignored). Mount a persistent volume here.
-- **Migrations:** none — schema is created at startup via `Base.metadata.create_all` (`backend/db/database.py`). This is non-destructive: existing tables are left alone, missing tables are added. **If you are upgrading from a pre-PR-#10 deploy with a leftover `aura.db`, review the new tables (`users`, `interview_sessions`) and decide whether to keep or wipe the file.**
+- **Migrations:** none — schema is created at startup via `Base.metadata.create_all` (`backend/db/database.py`). This is non-destructive: existing tables are left alone, missing tables are added. A startup guard compares expected vs actual columns and logs an explicit error naming any missing column (e.g. after pulling a change that adds a field) instead of failing later with `no such column`. **If you are upgrading from a pre-PR-#10 deploy with a leftover `aura.db`, review the new tables (`users`, `interview_sessions`) and decide whether to keep or wipe the file.** For dev, deleting `backend/data/aura.db` and restarting recreates the schema; for prod, apply a manual `ALTER TABLE` matching `backend/db/models.py`.
+- **Persistence:** `docker-compose.yml` ships no `volumes:` block — add one (e.g. `./backend/data:/app/data` with `DATABASE_PATH` pointing inside it) or bind-mount your host path, otherwise `aura.db` is ephemeral per container.
 - **Tables:**
   - `users` — `id`, `email` (unique), `name`, `avatar_url`, `provider`, `provider_id`, `role` (`candidate` | `admin`), `created_at`, `last_login_at`.
   - `interview_sessions` — `id`, `user_id` (FK), `candidate_name`, `plan_json`, `report_json`, `transcript_json`, `status` (`pending` | `in_progress` | `completed`), `created_at`, `completed_at`.

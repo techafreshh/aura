@@ -201,6 +201,17 @@ class TestProtectedEndpoints:
             _get_app().dependency_overrides.update(saved)
 
     @pytest.mark.asyncio
+    async def test_token_requires_auth(self):
+        saved = _get_app().dependency_overrides.copy()
+        _get_app().dependency_overrides.clear()
+        try:
+            async with AsyncClient(transport=ASGITransport(app=_get_app()), base_url="http://test") as ac:
+                response = await ac.get("/token?session_id=nonexistent")
+            assert response.status_code == 401
+        finally:
+            _get_app().dependency_overrides.update(saved)
+
+    @pytest.mark.asyncio
     async def test_health_public(self):
         async with AsyncClient(transport=ASGITransport(app=_get_app()), base_url="http://test") as ac:
             response = await ac.get("/health")

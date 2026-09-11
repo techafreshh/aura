@@ -8,12 +8,22 @@ from minio import Minio
 logger = logging.getLogger("storage")
 
 
+def _is_secure() -> bool:
+    return os.environ.get("MINIO_SECURE", "false").strip().lower() in ("1", "true", "yes", "on")
+
+
 def _get_client() -> Minio:
+    endpoint = os.environ.get("MINIO_ENDPOINT", "minio:9000").strip()
+    # Allow MINIO_ENDPOINT to include a scheme; Minio client wants host:port only.
+    for prefix in ("https://", "http://"):
+        if endpoint.lower().startswith(prefix):
+            endpoint = endpoint[len(prefix):]
+            break
     return Minio(
-        os.environ.get("MINIO_ENDPOINT", "minio:9000"),
+        endpoint or "minio:9000",
         access_key=os.environ.get("MINIO_ACCESS_KEY", ""),
         secret_key=os.environ.get("MINIO_SECRET_KEY", ""),
-        secure=False,
+        secure=_is_secure(),
     )
 
 

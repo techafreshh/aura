@@ -1,3 +1,4 @@
+import os
 import pytest
 from unittest.mock import patch, MagicMock
 from httpx import AsyncClient, ASGITransport
@@ -62,6 +63,30 @@ def test_archive_report_does_not_raise_on_error(mock_minio_cls):
     from utils.storage import archive_report
 
     archive_report("sess-3", {}, b"pdf")
+
+
+@patch("utils.storage.Minio")
+def test_get_client_defaults_to_insecure(mock_minio_cls):
+    with patch.dict(os.environ, {"MINIO_ENDPOINT": "minio:9000"}, clear=False):
+        os.environ.pop("MINIO_SECURE", None)
+        from utils.storage import _get_client
+
+        _get_client()
+
+    _, kwargs = mock_minio_cls.call_args
+    assert mock_minio_cls.call_args[0][0] == "minio:9000"
+    assert kwargs["secure"] is False
+
+
+@patch("utils.storage.Minio")
+def test_get_client_secure_strips_scheme(mock_minio_cls):
+    with patch.dict(os.environ, {"MINIO_ENDPOINT": "https://s3.example.com", "MINIO_SECURE": "true"}):
+        from utils.storage import _get_client
+
+        _get_client()
+
+    assert mock_minio_cls.call_args[0][0] == "s3.example.com"
+    assert mock_minio_cls.call_args[1]["secure"] is True
 
 
 @pytest.mark.asyncio
