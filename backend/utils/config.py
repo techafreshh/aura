@@ -129,3 +129,20 @@ def get_oauth_session_secret() -> str:
 JWT_SECRET: str = get_jwt_secret()
 ENVIRONMENT: str = get_environment()
 OAUTH_SESSION_SECRET: str = get_oauth_session_secret()
+
+
+def get_recruiter_monthly_limit() -> int:
+    """Return the max interviews a recruiter can redeem per calendar month.
+
+    Defaults to 20; falls back to 20 on a malformed value. This bounds voice
+    spend per recruiter — each redeemed invite costs roughly $0.10-0.25.
+    """
+    raw = os.getenv("RECRUITER_MONTHLY_LIMIT", "20")
+    try:
+        value = int(raw)
+    except ValueError:
+        return 20
+    return value if value > 0 else 20
+
+
+RECRUITER_MONTHLY_LIMIT: int = get_recruiter_monthly_limit()

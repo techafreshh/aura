@@ -5,6 +5,7 @@ import secrets
 import hashlib
 import urllib.parse
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 
 import bcrypt
 import jwt
@@ -23,10 +24,11 @@ from db.crud import (
     mark_email_verified,
     store_reset_token,
     set_user_password,
+    set_user_role,
 )
 from db.database import async_session
 from db.models import User
-from api.deps import get_current_user
+from api.deps import get_current_user, _WorkerUser
 from api.rate_limit import limiter
 from utils.config import JWT_SECRET, ENVIRONMENT
 from utils.email import (
@@ -372,6 +374,35 @@ async def reset_password(request: Request, payload: ResetPasswordRequest):
         await set_user_password(db, user, new_password_hash)
 
     return {"message": "Password updated. You can now sign in."}
+
+
+class RoleChoice(BaseModel):
+    role: Literal["candidate", "recruiter"]
+
+
+@router.post("/role")
+@limiter.limit("20/hour")
+async def set_role(request: Request, choice: RoleChoice, user=Depends(get_current_user)):
+    """Role picker: new users choose candidate or recruiter; switchable later.
+
+    Admins keep their role (and cannot demote themselves via this endpoint).
+    Returns a fresh JWT plus the updated user since the token carries a
+    (read-only) role claim the frontend relies on.
+    """
+    if isinstance(user, _WorkerUser):
+        raise HTTPException(403, "Workers cannot set a role")
+    if user.role not in ("", "candidate", "recruiter"):
+        raise HTTPException(403, "Admins cannot change role")
+
+    async with async_session() as db:
+        updated = await set_user_role(db, user.id, choice.role)
+    if not updated:
+        raise HTTPException(404, "User not found")
+
+    return {
+        "token": _make_jwt(updated.id, updated.email, updated.role, updated.name),
+        "user": _user_payload(updated),
+    }
 
 
 @router.get("/{provider}")
