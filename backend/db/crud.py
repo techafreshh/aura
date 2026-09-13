@@ -12,7 +12,12 @@ async def upsert_user(
     provider: str,
     provider_id: str,
     avatar_url: str | None = None,
-) -> User:
+) -> tuple[User, bool]:
+    """Create or refresh a user by email. Returns ``(user, created)``.
+
+    ``created`` is True only on first insert — the OAuth callback uses it to
+    send the welcome email exactly once.
+    """
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
 
@@ -20,6 +25,7 @@ async def upsert_user(
         user.name = name
         user.avatar_url = avatar_url
         user.last_login_at = datetime.now(timezone.utc)
+        created = False
     else:
         user = User(
             email=email,
@@ -29,15 +35,54 @@ async def upsert_user(
             avatar_url=avatar_url,
         )
         db.add(user)
+        created = True
 
     await db.commit()
     await db.refresh(user)
-    return user
+    return user, created
 
 
 async def get_user_by_id(db: AsyncSession, user_id: str) -> User | None:
     result = await db.execute(select(User).where(User.id == user_id))
     return result.scalar_one_or_none()
+
+
+async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
+    result = await db.execute(select(User).where(User.email == email))
+    return result.scalar_one_or_none()
+
+
+async def store_verification_token(
+    db: AsyncSession, user: User, token_hash: str, expires_at: datetime
+) -> None:
+    user.verification_token_hash = token_hash
+    user.verification_token_expires_at = expires_at
+    await db.commit()
+
+
+async def mark_email_verified(db: AsyncSession, user: User) -> None:
+    user.email_verified = True
+    user.verification_token_hash = None
+    user.verification_token_expires_at = None
+    await db.commit()
+
+
+async def store_reset_token(
+    db: AsyncSession, user: User, token_hash: str, expires_at: datetime
+) -> None:
+    user.reset_token_hash = token_hash
+    user.reset_token_expires_at = expires_at
+    await db.commit()
+
+
+async def set_user_password(db: AsyncSession, user: User, password_hash: str) -> None:
+    # Reset-link clicks prove mailbox ownership, so a previously unverified
+    # account gets verified here as well.
+    user.password_hash = password_hash
+    user.email_verified = True
+    user.reset_token_hash = None
+    user.reset_token_expires_at = None
+    await db.commit()
 
 
 async def create_session(

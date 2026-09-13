@@ -78,7 +78,7 @@ def auth_as_candidate():
 async def _seed_other_user_with_session(other_email: str = "other-candidate@example.com", name: str = "Other Candidate"):
     """Create a separate user with one session for cross-user access tests."""
     async with async_session() as db:
-        user = await upsert_user(
+        user, _created = await upsert_user(
             db,
             email=other_email,
             name=name,

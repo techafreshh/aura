@@ -8,9 +8,8 @@ from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Query, Ba
 from fastapi.responses import Response, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 from livekit.api import AccessToken, VideoGrants
 from langfuse import propagate_attributes
 from agent.parser import agent
@@ -19,6 +18,7 @@ from utils.storage import archive_report, archive_transcript, get_artifact, arch
 from utils.tracing import setup_langfuse
 from models.schemas import UploadResponse, InterviewPlan, FinalReport, TranscriptPayload, SessionSummary, AdminSessionDetail
 from api.deps import get_current_user, require_admin
+from api.rate_limit import limiter
 from api.auth import router as auth_router
 from db.crud import create_session, get_session, get_user_by_id, update_session_report, update_session_transcript, list_user_sessions, list_all_sessions
 from db.database import async_session
@@ -32,11 +32,6 @@ sentry_sdk.init(
     environment=ENVIRONMENT,
 )
 
-limiter = Limiter(
-    key_func=lambda request: request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or get_remote_address(request),
-    storage_uri=os.getenv("REDIS_URL"),
-    in_memory_fallback_enabled=True,
-)
 app = FastAPI(title="AI Interviewer API")
 setup_langfuse()
 app.state.limiter = limiter

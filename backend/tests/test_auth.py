@@ -57,13 +57,14 @@ class TestCRUD:
     @pytest.mark.asyncio
     async def test_upsert_user_creates_new(self):
         async with async_session() as db:
-            user = await upsert_user(
+            user, created = await upsert_user(
                 db,
                 email="crud-test@example.com",
                 name="CRUD Test",
                 provider="google",
                 provider_id="12345",
             )
+            assert created is True
             assert user.email == "crud-test@example.com"
             assert user.name == "CRUD Test"
             assert user.role == "candidate"
@@ -72,27 +73,29 @@ class TestCRUD:
     @pytest.mark.asyncio
     async def test_upsert_user_updates_existing(self):
         async with async_session() as db:
-            user1 = await upsert_user(
+            user1, created1 = await upsert_user(
                 db,
                 email="update-test@example.com",
                 name="Original",
                 provider="google",
                 provider_id="111",
             )
-            user2 = await upsert_user(
+            user2, created2 = await upsert_user(
                 db,
                 email="update-test@example.com",
                 name="Updated",
                 provider="google",
                 provider_id="111",
             )
+            assert created1 is True
+            assert created2 is False
             assert user1.id == user2.id
             assert user2.name == "Updated"
 
     @pytest.mark.asyncio
     async def test_get_user_by_id(self):
         async with async_session() as db:
-            user = await upsert_user(
+            user, _ = await upsert_user(
                 db,
                 email="get-test@example.com",
                 name="Get Test",
@@ -112,7 +115,7 @@ class TestCRUD:
     @pytest.mark.asyncio
     async def test_create_and_get_session(self):
         async with async_session() as db:
-            user = await upsert_user(
+            user, _ = await upsert_user(
                 db,
                 email="session-test@example.com",
                 name="Session Test",

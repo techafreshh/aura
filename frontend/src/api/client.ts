@@ -124,4 +124,55 @@ export const getAdminSessionDetail = async (sessionId: string): Promise<SessionD
   return response.data;
 };
 
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  role: 'admin' | 'candidate';
+  avatar_url?: string | null;
+}
+
+export interface LoginResponse {
+  token: string;
+  user: AuthUser;
+}
+
+/** Pull a human-readable message out of an axios error from our API. */
+export const apiErrorMessage = (error: unknown, fallback = 'Something went wrong. Please try again.'): string => {
+  if (axios.isAxiosError(error)) {
+    const detail = error.response?.data?.detail;
+    if (typeof detail === 'string') return detail;
+    if (detail?.message) return detail.message as string;
+  }
+  return fallback;
+};
+
+export const registerUser = async (email: string, password: string, name: string): Promise<{ message: string }> => {
+  const response = await api.post<{ message: string }>('/auth/register', { email, password, name });
+  return response.data;
+};
+
+export const loginWithPassword = async (email: string, password: string): Promise<LoginResponse> => {
+  const response = await api.post<LoginResponse>('/auth/login', { email, password });
+  return response.data;
+};
+
+export const resendVerification = async (email: string): Promise<{ message: string }> => {
+  const response = await api.post<{ message: string }>('/auth/resend-verification', { email });
+  return response.data;
+};
+
+export const requestPasswordReset = async (email: string): Promise<{ message: string }> => {
+  const response = await api.post<{ message: string }>('/auth/forgot-password', { email });
+  return response.data;
+};
+
+export const resetPassword = async (token: string, newPassword: string): Promise<{ message: string }> => {
+  const response = await api.post<{ message: string }>('/auth/reset-password', {
+    token,
+    new_password: newPassword,
+  });
+  return response.data;
+};
+
 export default api;
