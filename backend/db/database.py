@@ -6,6 +6,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import StaticPool
 
+from utils.config import get_environment
+
 logger = logging.getLogger("database")
 
 DB_PATH = os.getenv("DATABASE_PATH", str(Path(__file__).parent.parent / "data" / "aura.db"))
@@ -67,13 +69,17 @@ async def init_db() -> dict[str, list[str]]:
 
     if missing:
         details = "; ".join(f"{table}: {', '.join(cols)}" for table, cols in missing.items())
-        logger.error(
-            "Database schema drift detected — missing columns: %s. "
-            "For dev, delete %s and restart to recreate the schema; "
-            "for prod, apply a manual ALTER TABLE matching db/models.py.",
-            details,
-            DB_PATH,
+        message = (
+            f"Database schema drift detected — missing columns: {details}. "
+            f"For dev, delete {DB_PATH} and restart to recreate the schema; "
+            "for prod, apply a manual ALTER TABLE matching db/models.py."
         )
+        # In production a drifted schema would 500 on every request with an
+        # opaque "no such column"; failing at startup is the louder, earlier
+        # failure. Development keeps serving so a stale local DB stays usable.
+        if get_environment() == "production":
+            raise RuntimeError(message)
+        logger.error(message)
     return missing
 
 

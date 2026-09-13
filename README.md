@@ -88,7 +88,7 @@ The app is served on `127.0.0.1:3000`. Point a reverse proxy (Caddy/nginx) with 
 | `LIVEKIT_API_SECRET` | LiveKit API secret |
 | `DOMAIN` | Production domain (CORS) |
 | `ENVIRONMENT` | `development` or `production` (default: `development`) |
-| `DATABASE_PATH` | SQLite file location (default: `backend/data/aura.db`) |
+| `DATABASE_PATH` | SQLite file location (unset default: `/app/data/aura.db` in the container, on the compose volume; `backend/data/aura.db` for local runs) |
 | `BACKEND_URL` | Worker-to-backend URL (e.g. `http://backend:8000` in compose) |
 | `MINIO_ENDPOINT` | MinIO endpoint for report archival |
 | `MINIO_ACCESS_KEY` | MinIO access key |
@@ -111,7 +111,7 @@ The app is served on `127.0.0.1:3000`. Point a reverse proxy (Caddy/nginx) with 
 |--------|------|-------------|
 | `POST` | `/upload` | Upload PDF resume, returns interview plan |
 | `GET` | `/plan/{session_id}` | Retrieve interview plan |
-| `GET` | `/token?session_id=` | Generate LiveKit room token (owner, admin, or worker only) |
+| `GET` | `/token?session_id=` | Generate LiveKit room token (owner or admin only) |
 | `POST` | `/report/{session_id}` | Save interview report |
 | `GET` | `/report/{session_id}` | Retrieve interview report |
 | `GET` | `/sessions/mine` | List authenticated user's sessions |
