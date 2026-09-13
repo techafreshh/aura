@@ -29,6 +29,7 @@ dependencies = [
     "PyJWT>=2.8",
     "httpx>=0.28.1",
     "itsdangerous>=2.2.0",
+    "bcrypt>=5.0.0",
 ]
 
 [dependency-groups]

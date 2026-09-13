@@ -8,6 +8,7 @@
 - OpenRouter API key
 - OpenAI API key
 - MinIO instance (for report archival) — requires `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`
+- **SendByte account** for transactional email (email verification, welcome, password reset) — requires `SENDBYTE_API_KEY`, `SENDBYTE_FROM_EMAIL`
 - **OAuth provider accounts (Google + GitHub)** for user authentication (required after PR #10)
 - A persistent volume or host path mounted at `backend/data/` for the SQLite database
 
@@ -35,6 +36,9 @@ cp .env.example .env
    - `ADMIN_EMAIL` — the operator's email; first login with this address grants the `admin` role.
    - `WORKER_API_KEY` — generate with `python -c "import secrets; print(secrets.token_hex(32))"` and share the same value with the worker deployment. Anyone holding this key can submit reports and transcripts as the worker.
    - `FRONTEND_URL` — public URL of the frontend (e.g. `https://yourdomain.com`). Must match the OAuth app's authorized redirect URIs.
+   - `SENDBYTE_API_KEY` — from your SendByte dashboard (use `sk_live_...` in production, `sk_test_...` in sandbox). Without it, sign-up works but no verification/welcome/reset emails are sent.
+   - `SENDBYTE_FROM_EMAIL` — a verified sender on your SendByte account, e.g. `Aura <no-reply@yourdomain.com>`.
+   - `PUBLIC_API_URL` — optional. Public base URL of the API used in email links; defaults to `{FRONTEND_URL}/api` (matching the frontend nginx proxy). Override only if your proxy layout differs.
 
    **OAuth callback URLs to register with each provider:**
    - Google: `{FRONTEND_URL}/auth/google/callback` (or configure the redirect to your backend's `/auth/google/callback` per your proxy routing)
@@ -79,14 +83,17 @@ After the first deploy with PR #10, verify the auth path end-to-end:
 4. **Admin role:** the email matching `ADMIN_EMAIL` is promoted to `admin` on first login. Confirm via `curl -H "Authorization: Bearer <your-jwt>" https://yourdomain.com/api/auth/me` → `"role": "admin"`.
 5. **Worker → backend auth:** the worker logs a successful `POST /report/{id}` and `POST /transcript/{id}` with `Authorization: Bearer $WORKER_API_KEY`. If you see `401` in the worker logs, the keys don't match.
 6. **Database created:** `ls -la backend/data/aura.db` (or your mounted volume) — created on first backend startup via `Base.metadata.create_all`.
+7. **Email + password auth (with SendByte configured):** register via the frontend's sign-up form, confirm the verification email arrives (check spam if using a sandbox key), click the link, then sign in with the new credentials. Registering with an existing OAuth-only email returns a 409 pointing at the provider.
+8. **Password reset:** request a reset from "Forgot password?", confirm the email arrives within a minute, and set a new password. Reset links expire after 1 hour and are single-use.
+9. **Welcome email:** sign in with a brand-new Google/GitHub account and confirm exactly one welcome email is sent (repeated logins must not re-send it).
 
 ## Database
 
 - **Engine:** SQLite via SQLAlchemy async (`aiosqlite`).
 - **Location:** `backend/data/aura.db` (gitignored). Mount a persistent volume here.
-- **Migrations:** none — schema is created at startup via `Base.metadata.create_all` (`backend/db/database.py`). This is non-destructive: existing tables are left alone, missing tables are added. **If you are upgrading from a pre-PR-#10 deploy with a leftover `aura.db`, review the new tables (`users`, `interview_sessions`) and decide whether to keep or wipe the file.**
+- **Migrations:** none in the Alembic sense — schema is created at startup via `Base.metadata.create_all` (`backend/db/database.py`), and columns added post-release are backfilled onto existing tables with `ALTER TABLE` (`_add_missing_user_columns`). Both steps are non-destructive. **If you are upgrading from a pre-PR-#10 deploy with a leftover `aura.db`, review the tables and decide whether to keep or wipe the file.**
 - **Tables:**
-  - `users` — `id`, `email` (unique), `name`, `avatar_url`, `provider`, `provider_id`, `role` (`candidate` | `admin`), `created_at`, `last_login_at`.
+  - `users` — `id`, `email` (unique), `name`, `avatar_url`, `provider` (`google` | `github` | `email`), `provider_id`, `role` (`candidate` | `admin`), `password_hash` (null for OAuth-only accounts), `email_verified`, `verification_token_hash` + `verification_token_expires_at`, `reset_token_hash` + `reset_token_expires_at`, `created_at`, `last_login_at`. Only SHA-256 hashes of email tokens are stored — raw tokens exist solely inside email links.
   - `interview_sessions` — `id`, `user_id` (FK), `candidate_name`, `plan_json`, `report_json`, `transcript_json`, `status` (`pending` | `in_progress` | `completed`), `created_at`, `completed_at`.
 
 ## Architecture
@@ -106,3 +113,12 @@ The backend and worker are not exposed to the internet. Only the frontend contai
 5. `AuthCallback.tsx` reads the fragment, stores the token in `localStorage` as `auth_token`, then calls `history.replaceState` to clear the fragment.
 6. Subsequent API calls send `Authorization: Bearer <jwt>` via an axios interceptor; the backend's `get_current_user` decodes the JWT, re-reads `role` from the DB on every request, and rejects with `401` on missing/expired/invalid tokens.
 7. The worker authenticates with `Authorization: Bearer $WORKER_API_KEY`; a `_WorkerUser` sentinel is returned so endpoint authorization can grant worker-only write access (`/report`, `/transcript`) without impersonating a real user.
+
+### Email + Password Flow
+
+1. Sign-up (`POST /auth/register`) hashes the password with bcrypt (cost 12), creates the user with `provider="email"` and `email_verified=false`, and emails a 24-hour verification link (SendByte). The raw token is single-use; only its SHA-256 hash is stored.
+2. The link (`GET /auth/verify-email?token=...`) marks the address verified and 302s to `{FRONTEND_URL}/auth/verified?status=success|expired|invalid`.
+3. Sign-in (`POST /auth/login`) returns 403 `{"code": "email_not_verified"}` until the address is verified, then issues the same 7-day JWT as OAuth.
+4. Password reset: `POST /auth/forgot-password` emails a 1-hour single-use link to `{FRONTEND_URL}/reset-password?token=...`; `POST /auth/reset-password` sets the new password (and verifies the address, since the link click proves mailbox access). OAuth-only accounts are silently skipped.
+5. First-time Google/GitHub users receive one welcome email (sent only when the OAuth upsert creates the account).
+6. Rate limits: register 5/hour, login 10/hour, resend 3/hour, forgot 3/hour, reset 5/hour, verify 30/hour — keyed on `X-Forwarded-For` like the rest of the API.
