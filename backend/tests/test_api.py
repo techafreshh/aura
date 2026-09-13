@@ -4,9 +4,9 @@ import os
 from unittest.mock import patch
 from httpx import AsyncClient, ASGITransport
 from api.main import app
-from models.schemas import InterviewPlan, FinalReport, SectionGrade
+from models.schemas import InterviewPlan
 from db.database import async_session
-from db.crud import create_session, update_session_report
+from db.crud import create_session
 
 
 @pytest.mark.asyncio
@@ -28,21 +28,96 @@ async def test_upload_non_pdf():
 
 @pytest.mark.asyncio
 async def test_get_token_missing_credentials():
+    async with async_session() as db:
+        session = await create_session(
+            db,
+            user_id="test-user-id",
+            candidate_name="Test Candidate",
+            plan_json=InterviewPlan(
+                candidate_name="Test Candidate",
+                extracted_skills=["Python"],
+                question_bank=["Q1"],
+            ).model_dump_json(),
+        )
+        session_id = session.id
+
     with patch.dict(os.environ, {"LIVEKIT_API_KEY": "", "LIVEKIT_API_SECRET": ""}):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-            response = await ac.get("/token?session_id=test-session")
+            response = await ac.get(f"/token?session_id={session_id}")
         assert response.status_code == 500
         assert "LiveKit credentials are not configured" in response.json()["detail"]
 
 
 @pytest.mark.asyncio
 async def test_get_token_success():
+    async with async_session() as db:
+        session = await create_session(
+            db,
+            user_id="test-user-id",
+            candidate_name="Test Candidate",
+            plan_json=InterviewPlan(
+                candidate_name="Test Candidate",
+                extracted_skills=["Python"],
+                question_bank=["Q1"],
+            ).model_dump_json(),
+        )
+        session_id = session.id
+
     with patch.dict(os.environ, {"LIVEKIT_API_KEY": "fake_key", "LIVEKIT_API_SECRET": "fake_secret"}):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-            response = await ac.get("/token?session_id=test-session")
+            response = await ac.get(f"/token?session_id={session_id}")
         assert response.status_code == 200
         assert "token" in response.json()
         assert isinstance(response.json()["token"], str)
+
+
+@pytest.mark.asyncio
+async def test_get_token_requires_auth():
+    from api.deps import get_current_user
+
+    # The autouse conftest fixture re-applies the standard override before the
+    # next test, so clearing here is enough to exercise the real dependency.
+    app.dependency_overrides.pop(get_current_user, None)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.get("/token?session_id=any-session")
+
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_get_token_forbidden_for_other_users_session():
+    from api.deps import get_current_user
+
+    class _OtherUser:
+        id = "other-user-id"
+        email = "other@example.com"
+        role = "candidate"
+
+    async def _override_other_user(request=None):
+        return _OtherUser()
+
+    async with async_session() as db:
+        session = await create_session(
+            db,
+            user_id="test-user-id",
+            candidate_name="Test Candidate",
+            plan_json=InterviewPlan(
+                candidate_name="Test Candidate",
+                extracted_skills=["Python"],
+                question_bank=["Q1"],
+            ).model_dump_json(),
+        )
+        session_id = session.id
+
+    app.dependency_overrides[get_current_user] = _override_other_user
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.get(f"/token?session_id={session_id}")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    assert response.status_code == 403
 
 
 @pytest.mark.asyncio
@@ -161,36 +236,3 @@ async def test_transcript_rejects_invalid_payload():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.post("/transcript/test-session", json={"invalid": "payload"})
     assert response.status_code == 422
-
-
-@pytest.mark.asyncio
-async def test_report_stream_returns_report():
-    mock_plan = InterviewPlan(
-        candidate_name="Test User",
-        extracted_skills=["Python"],
-        question_bank=["Q1"]
-    )
-    mock_report = FinalReport(
-        candidate_name="Test User",
-        overall_score=75,
-        section_grades=[SectionGrade(section_name="Technical", score=8, comments="Good technical skills")],
-        strengths=["Python", "Problem solving"],
-        weaknesses=["Communication"],
-        recommendation="Hire",
-        summary="Strong technical candidate."
-    )
-    async with async_session() as db:
-        session = await create_session(
-            db,
-            user_id="test-user-id",
-            candidate_name="Test User",
-            plan_json=mock_plan.model_dump_json(),
-        )
-        await update_session_report(db, session.id, mock_report.model_dump_json())
-        session_id = session.id
-
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        response = await ac.get(f"/report-stream/{session_id}")
-    assert response.status_code == 200
-    assert "text/event-stream" in response.headers["content-type"]
-    assert "Test User" in response.text

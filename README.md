@@ -101,7 +101,7 @@ The app is served on `127.0.0.1:3000`. Point a reverse proxy (Caddy/nginx) with 
 |--------|------|-------------|
 | `POST` | `/upload` | Upload PDF resume, returns interview plan |
 | `GET` | `/plan/{session_id}` | Retrieve interview plan |
-| `GET` | `/token?session_id=` | Generate LiveKit room token |
+| `GET` | `/token?session_id=` | Generate LiveKit room token (owner or admin) |
 | `POST` | `/report/{session_id}` | Save interview report |
 | `GET` | `/report/{session_id}` | Retrieve interview report |
 | `GET` | `/sessions/mine` | List authenticated user's sessions |

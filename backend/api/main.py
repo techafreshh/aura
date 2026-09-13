@@ -3,9 +3,10 @@ import os
 import json
 import re
 import asyncio
+from contextlib import asynccontextmanager
 from typing import Optional
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Query, BackgroundTasks, Depends
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -37,7 +38,46 @@ limiter = Limiter(
     storage_uri=os.getenv("REDIS_URL"),
     in_memory_fallback_enabled=True,
 )
-app = FastAPI(title="AI Interviewer API")
+def _run_migrations() -> None:
+    """Bring the SQLite schema up to date with Alembic migrations.
+
+    Auto-heals databases created by the earlier ``create_all``-only deploys:
+    if the schema exists but has no ``alembic_version`` table, it is stamped
+    at head instead of migrated. Runs synchronously — invoke via
+    ``asyncio.to_thread`` so the event loop isn't blocked.
+    """
+    import sqlite3
+    from pathlib import Path
+
+    from alembic import command
+    from alembic.config import Config
+
+    from db.database import DB_PATH
+
+    backend_root = Path(__file__).resolve().parent.parent
+    alembic_cfg = Config(str(backend_root / "alembic.ini"))
+
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    finally:
+        conn.close()
+
+    if "alembic_version" in tables:
+        command.upgrade(alembic_cfg, "head")
+    elif "users" in tables:
+        command.stamp(alembic_cfg, "head")
+    else:
+        command.upgrade(alembic_cfg, "head")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await asyncio.to_thread(_run_migrations)
+    yield
+
+
+app = FastAPI(title="AI Interviewer API", lifespan=lifespan)
 setup_langfuse()
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -70,16 +110,6 @@ app.add_middleware(
 )
 
 MAX_PDF_SIZE = 10 * 1024 * 1024  # 10 MB
-
-_sse_connections: dict[str, int] = {}
-_sse_locks: dict[str, asyncio.Lock] = {}
-MAX_SSE_PER_SESSION = 3
-
-
-@app.on_event("startup")
-async def startup():
-    from db.database import init_db
-    await init_db()
 
 
 def sanitize_name(name: str) -> str:
@@ -164,7 +194,18 @@ async def get_plan(session_id: str, request: Request, user=Depends(get_current_u
 
 @app.get("/token")
 @limiter.limit("5/hour")
-async def get_token(request: Request, session_id: str = Query(..., description="The session ID/room name to join")):
+async def get_token(
+    request: Request,
+    session_id: str = Query(..., description="The session ID/room name to join"),
+    user=Depends(get_current_user),
+):
+    async with async_session() as db:
+        session = await get_session(db, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if user.role != "admin" and session.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
     api_key = os.getenv("LIVEKIT_API_KEY")
     api_secret = os.getenv("LIVEKIT_API_SECRET")
 
@@ -404,48 +445,3 @@ async def admin_get_session_report(request: Request, session_id: str, user=Depen
         return FinalReport.model_validate_json(data.decode())
 
     raise HTTPException(status_code=404, detail="Report not found")
-
-
-@app.get("/report-stream/{session_id}")
-@limiter.limit("10/hour")
-async def report_stream(request: Request, session_id: str, user=Depends(get_current_user)):
-    async with async_session() as db:
-        session = await get_session(db, session_id)
-
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    if user.role != "admin" and session.user_id != user.id:
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    lock = _sse_locks.setdefault(session_id, asyncio.Lock())
-
-    async with lock:
-        current = _sse_connections.get(session_id, 0)
-        if current >= MAX_SSE_PER_SESSION:
-            raise HTTPException(status_code=429, detail="Too many connections for this session")
-        _sse_connections[session_id] = current + 1
-
-    async def event_generator():
-        try:
-            for _ in range(120):
-                if await request.is_disconnected():
-                    return
-                async with async_session() as db:
-                    session = await get_session(db, session_id)
-                if session and session.report_json:
-                    report = FinalReport.model_validate_json(session.report_json)
-                    yield f"data: {json.dumps(report.model_dump())}\n\n"
-                    return
-                await asyncio.sleep(1)
-            yield f"data: {json.dumps({'error': 'timeout'})}\n\n"
-        finally:
-            async with _sse_locks.get(session_id, asyncio.Lock()):
-                new_count = max(0, _sse_connections.get(session_id, 1) - 1)
-                if new_count == 0:
-                    _sse_connections.pop(session_id, None)
-                    _sse_locks.pop(session_id, None)
-                else:
-                    _sse_connections[session_id] = new_count
-
-    return StreamingResponse(event_generator(), media_type="text/event-stream")

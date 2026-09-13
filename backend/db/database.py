@@ -14,12 +14,6 @@ class Base(DeclarativeBase):
     pass
 
 
-async def init_db():
-    async with engine.begin() as conn:
-        from db.models import User, InterviewSession  # noqa: F401
-        await conn.run_sync(Base.metadata.create_all)
-
-
 async def get_db():
     async with async_session() as session:
         yield session
