@@ -12,6 +12,8 @@ import {
 } from "@livekit/components-react";
 import { useState, useEffect, useRef } from "react";
 import { Track, ConnectionState, type LocalAudioTrack } from "livekit-client";
+import axios from "axios";
+import { getReport } from "@/api/client";
 import "@/styles/aura-arena.css";
 
 interface InterviewAgentProps {
@@ -267,7 +269,9 @@ function InterviewInner({ sessionId, candidateName = "Candidate", onInterviewEnd
     try { await room?.disconnect(); } catch (e) { console.error("Room disconnect failed:", e); }
   };
 
-  // After end, fetch report via SSE
+  // After end, poll for the report via the authed axios client — the previous
+  // EventSource transport couldn't send the JWT and never received a report.
+  // A 404 just means the worker hasn't finished generating the report yet.
   const [reportError, setReportError] = useState<string | null>(null);
   useEffect(() => {
     if (hasConnected && roomState === ConnectionState.Disconnected && !hasEnded) {
@@ -276,32 +280,33 @@ function InterviewInner({ sessionId, candidateName = "Candidate", onInterviewEnd
     }
 
     if (hasEnded && endedOpen) {
-      const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const es = new EventSource(`${API_BASE}/report-stream/${sessionId}`);
-      
-      const timeout = setTimeout(() => {
-        es.close();
-        setReportError("Report generation timed out. The interview may have been too short for a meaningful report.");
-      }, 120_000);
+      let cancelled = false;
+      const startedAt = Date.now();
+      const POLL_INTERVAL_MS = 3000;
+      const TIMEOUT_MS = 120_000;
 
-      es.onmessage = (e) => {
-        clearTimeout(timeout);
-        const data = JSON.parse(e.data);
-        if (data.error) {
-          setReportError("Report generation timed out. The interview may have been too short for a meaningful report.");
-        } else {
-          onInterviewEnd(data);
+      const poll = async () => {
+        while (!cancelled) {
+          try {
+            const report = await getReport(sessionId);
+            if (!cancelled) onInterviewEnd(report);
+            return;
+          } catch (error) {
+            if (cancelled) return;
+            const isPending = axios.isAxiosError(error) && error.response?.status === 404;
+            if (!isPending || Date.now() - startedAt >= TIMEOUT_MS) {
+              setReportError(isPending
+                ? "Report generation timed out. The interview may have been too short for a meaningful report."
+                : "Connection lost. Please try again.");
+              return;
+            }
+            await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+          }
         }
-        es.close();
       };
-      es.onerror = () => {
-        clearTimeout(timeout);
-        es.close();
-        setReportError("Connection lost. Please try again.");
-      };
+      poll();
       return () => {
-        clearTimeout(timeout);
-        es.close();
+        cancelled = true;
       };
     }
   }, [roomState, hasConnected, hasEnded, endedOpen, sessionId, onInterviewEnd]);

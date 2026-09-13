@@ -4,9 +4,9 @@ import os
 from unittest.mock import patch
 from httpx import AsyncClient, ASGITransport
 from api.main import app
-from models.schemas import InterviewPlan, FinalReport, SectionGrade
+from models.schemas import InterviewPlan
 from db.database import async_session
-from db.crud import create_session, update_session_report
+from db.crud import create_session
 
 
 @pytest.mark.asyncio
@@ -251,36 +251,3 @@ async def test_transcript_rejects_invalid_payload():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.post("/transcript/test-session", json={"invalid": "payload"})
     assert response.status_code == 422
-
-
-@pytest.mark.asyncio
-async def test_report_stream_returns_report():
-    mock_plan = InterviewPlan(
-        candidate_name="Test User",
-        extracted_skills=["Python"],
-        question_bank=["Q1"]
-    )
-    mock_report = FinalReport(
-        candidate_name="Test User",
-        overall_score=75,
-        section_grades=[SectionGrade(section_name="Technical", score=8, comments="Good technical skills")],
-        strengths=["Python", "Problem solving"],
-        weaknesses=["Communication"],
-        recommendation="Hire",
-        summary="Strong technical candidate."
-    )
-    async with async_session() as db:
-        session = await create_session(
-            db,
-            user_id="test-user-id",
-            candidate_name="Test User",
-            plan_json=mock_plan.model_dump_json(),
-        )
-        await update_session_report(db, session.id, mock_report.model_dump_json())
-        session_id = session.id
-
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        response = await ac.get(f"/report-stream/{session_id}")
-    assert response.status_code == 200
-    assert "text/event-stream" in response.headers["content-type"]
-    assert "Test User" in response.text

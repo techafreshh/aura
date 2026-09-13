@@ -70,7 +70,7 @@ git pull
 docker compose up -d --build
 ```
 
-> **Heads up on rolling updates (post PR #10 + token hardening):** all previously-open API endpoints now require authentication. Any unupdated client (monitoring probes, e2e tests, internal tooling, curl scripts) that hits `/upload`, `/plan/{id}`, `/token`, `/report/{id}`, `/transcript/{id}`, `/upload-pdf/{id}`, `/download/{id}/{type}`, or `/report-stream/{id}` without an `Authorization: Bearer <jwt>` (or the worker API key) will start receiving `401` (`403` for non-owners on `/token`). Coordinate a restart window if any in-flight interviews are active — the previous in-memory `plans`/`reports` stores were replaced by SQLite, so on-disk interview state on a prior deploy is orphaned until those sessions finish.
+> **Heads up on rolling updates (post PR #10 + token hardening):** all previously-open API endpoints now require authentication. Any unupdated client (monitoring probes, e2e tests, internal tooling, curl scripts) that hits `/upload`, `/plan/{id}`, `/token`, `/report/{id}`, `/transcript/{id}`, `/upload-pdf/{id}`, or `/download/{id}/{type}` without an `Authorization: Bearer <jwt>` (or the worker API key) will start receiving `401` (`403` for non-owners on `/token`). Coordinate a restart window if any in-flight interviews are active — the previous in-memory `plans`/`reports` stores were replaced by SQLite, so on-disk interview state on a prior deploy is orphaned until those sessions finish.
 
 ## Post-Deployment Verification
 
@@ -81,14 +81,18 @@ After the first deploy with PR #10, verify the auth path end-to-end:
 3. **OAuth login flow:** open the frontend, click "Continue with Google" (or GitHub), complete the consent screen, and confirm you land on the interview page with your name/avatar shown.
 4. **Admin role:** the email matching `ADMIN_EMAIL` is promoted to `admin` on first login. Confirm via `curl -H "Authorization: Bearer <your-jwt>" https://yourdomain.com/api/auth/me` → `"role": "admin"`.
 5. **Worker → backend auth:** the worker logs a successful `POST /report/{id}` and `POST /transcript/{id}` with `Authorization: Bearer $WORKER_API_KEY`. If you see `401` in the worker logs, the keys don't match.
-6. **Database created:** `ls -la backend/data/aura.db` (or your mounted volume) — created on first backend startup via `Base.metadata.create_all`.
+6. **Database created:** `ls -la backend/data/aura.db` (or your mounted volume) — created automatically on first backend startup by the Alembic migrations.
 
 ## Database
 
 - **Engine:** SQLite via SQLAlchemy async (`aiosqlite`).
 - **Location:** `backend/data/aura.db` (gitignored). Mount a persistent volume here.
-- **Migrations:** none — schema is created at startup via `Base.metadata.create_all` (`backend/db/database.py`). This is non-destructive: existing tables are left alone, missing tables are added. A startup guard compares expected vs actual columns and reports an explicit error naming any missing column (e.g. after pulling a change that adds a field) instead of failing later with `no such column` — it logs in development and raises at startup in production. **If you are upgrading from a pre-PR-#10 deploy with a leftover `aura.db`, review the new tables (`users`, `interview_sessions`) and decide whether to keep or wipe the file.** For dev, deleting `backend/data/aura.db` and restarting recreates the schema; for prod, apply a manual `ALTER TABLE` matching `backend/db/models.py`.
-- **Persistence:** `docker-compose.yml` mounts the `aura-data` volume at `/app/data` — leave `DATABASE_PATH` unset so the default (`/app/data/aura.db`) lands on that volume. A host-relative value like `DATABASE_PATH=backend/data/aura.db` in the root `.env` resolves to `/app/backend/data/aura.db` *inside* the container and silently bypasses the volume; if you override it, use an absolute path inside the mount (or bind-mount your own path).
+- **Migrations:** Alembic (`backend/migrations/`), applied automatically at backend startup by the FastAPI lifespan handler in `api/main.py`:
+  - DB already tracked by Alembic (`alembic_version` table present) → `upgrade head`.
+  - Pre-Alembic DB (tables exist but no `alembic_version` — e.g. a `create_all`-era deploy) → stamped at head after a drift check compares the live schema against `db/models.py`; a schema that is missing columns or tables is NOT stamped — startup fails loudly instead of 500ing later with `no such column`. The `oauth_identities` backfill from earlier deploys still runs for those users.
+  - Fresh DB → schema created by the initial migration.
+  After migrations, `init_db` still runs `create_all` (a no-op on a fully migrated schema), the OAuth identity backfill, and the column drift guard — it logs in development and raises at startup in production. **If you are upgrading from a pre-PR-#10 deploy with a leftover `aura.db`, it is detected and stamped at head automatically — no manual steps.**
+  To change the schema: edit `db/models.py`, then run `cd backend && uv run alembic revision --autogenerate -m "describe the change"`, review the generated file, and commit it together with the model change. Migrations run inside the existing backend container — no extra deploy step.
 - **Tables:**
   - `users` — `id`, `email` (unique), `name`, `avatar_url`, `provider`, `provider_id`, `role` (`candidate` | `admin`), `created_at`, `last_login_at`.
   - `interview_sessions` — `id`, `user_id` (FK), `candidate_name`, `plan_json`, `report_json`, `transcript_json`, `status` (`pending` | `in_progress` | `completed`), `created_at`, `completed_at`.
