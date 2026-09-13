@@ -1,13 +1,29 @@
+import logging
 import os
 from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy import text
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import StaticPool
+
+from utils.config import get_environment
+
+logger = logging.getLogger("database")
 
 DB_PATH = os.getenv("DATABASE_PATH", str(Path(__file__).parent.parent / "data" / "aura.db"))
-Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
+if DB_PATH != ":memory:":
+    Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
 
-engine = create_async_engine(f"sqlite+aiosqlite:///{DB_PATH}", echo=False)
+if DB_PATH == ":memory:":
+    # Share a single connection so all sessions see the same in-memory DB.
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        echo=False,
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
+    )
+else:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{DB_PATH}", echo=False)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
@@ -15,7 +31,23 @@ class Base(DeclarativeBase):
     pass
 
 
-async def init_db():
+def _find_missing_columns(sync_conn) -> dict[str, list[str]]:
+    from sqlalchemy import inspect
+
+    inspector = inspect(sync_conn)
+    missing: dict[str, list[str]] = {}
+    for table in Base.metadata.tables.values():
+        if not inspector.has_table(table.name):
+            missing[table.name] = ["<missing table>"]
+            continue
+        actual = {col["name"] for col in inspector.get_columns(table.name)}
+        diff = set(table.columns.keys()) - actual
+        if diff:
+            missing[table.name] = sorted(diff)
+    return missing
+
+
+async def init_db() -> dict[str, list[str]]:
     async with engine.begin() as conn:
         from db.models import User, OAuthIdentity, InterviewSession  # noqa: F401
         await conn.run_sync(Base.metadata.create_all)
@@ -31,6 +63,24 @@ async def init_db():
             FROM users
             WHERE provider IS NOT NULL AND provider_id IS NOT NULL
         """))
+
+    async with engine.connect() as conn:
+        missing = await conn.run_sync(_find_missing_columns)
+
+    if missing:
+        details = "; ".join(f"{table}: {', '.join(cols)}" for table, cols in missing.items())
+        message = (
+            f"Database schema drift detected — missing columns: {details}. "
+            f"For dev, delete {DB_PATH} and restart to recreate the schema; "
+            "for prod, apply a manual ALTER TABLE matching db/models.py."
+        )
+        # In production a drifted schema would 500 on every request with an
+        # opaque "no such column"; failing at startup is the louder, earlier
+        # failure. Development keeps serving so a stale local DB stays usable.
+        if get_environment() == "production":
+            raise RuntimeError(message)
+        logger.error(message)
+    return missing
 
 
 async def get_db():

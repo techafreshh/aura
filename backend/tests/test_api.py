@@ -52,6 +52,20 @@ async def test_get_token_success():
 
 
 @pytest.mark.asyncio
+async def test_get_token_requires_auth():
+    from api.main import app as app_module
+
+    saved = app_module.dependency_overrides.copy()
+    app_module.dependency_overrides.clear()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.get("/token?session_id=any-session")
+        assert response.status_code == 401
+    finally:
+        app_module.dependency_overrides.update(saved)
+
+
+@pytest.mark.asyncio
 async def test_get_token_rejects_another_users_session():
     from api.deps import get_current_user
 
@@ -71,6 +85,13 @@ async def test_get_token_rejects_another_users_session():
         assert response.status_code == 403
     finally:
         app.dependency_overrides[get_current_user] = saved
+
+
+@pytest.mark.asyncio
+async def test_get_token_not_found():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.get("/token?session_id=nonexistent-session-id")
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio

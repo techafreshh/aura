@@ -87,10 +87,20 @@ The app is served on `127.0.0.1:3000`. Point a reverse proxy (Caddy/nginx) with 
 | `LIVEKIT_API_KEY` | LiveKit API key |
 | `LIVEKIT_API_SECRET` | LiveKit API secret |
 | `DOMAIN` | Production domain (CORS) |
+| `ENVIRONMENT` | `development` or `production` (default: `development`) |
+| `DATABASE_PATH` | SQLite file location (unset default: `/app/data/aura.db` in the container, on the compose volume; `backend/data/aura.db` for local runs) |
+| `BACKEND_URL` | Worker-to-backend URL (e.g. `http://backend:8000` in compose) |
 | `MINIO_ENDPOINT` | MinIO endpoint for report archival |
 | `MINIO_ACCESS_KEY` | MinIO access key |
 | `MINIO_SECRET_KEY` | MinIO secret key |
 | `MINIO_BUCKET` | MinIO bucket name |
+| `MINIO_SECURE` | `true` when MinIO uses `https://`, else `false` |
+| `JWT_SECRET` | HS256 secret (≥32 chars, required in production) |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth credentials |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | GitHub OAuth credentials |
+| `ADMIN_EMAIL` | Email promoted to `admin` on first login |
+| `WORKER_API_KEY` | Worker-to-backend shared secret |
+| `FRONTEND_URL` | Public frontend URL for OAuth redirects |
 | `LANGFUSE_PUBLIC_KEY` | Langfuse project public key (optional) |
 | `LANGFUSE_SECRET_KEY` | Langfuse project secret key (optional) |
 | `LANGFUSE_BASE_URL` | Langfuse instance URL (optional) |
@@ -101,7 +111,7 @@ The app is served on `127.0.0.1:3000`. Point a reverse proxy (Caddy/nginx) with 
 |--------|------|-------------|
 | `POST` | `/upload` | Upload PDF resume, returns interview plan |
 | `GET` | `/plan/{session_id}` | Retrieve interview plan |
-| `GET` | `/token?session_id=` | Generate LiveKit room token |
+| `GET` | `/token?session_id=` | Generate LiveKit room token (owner or admin only) |
 | `POST` | `/report/{session_id}` | Save interview report |
 | `GET` | `/report/{session_id}` | Retrieve interview report |
 | `GET` | `/sessions/mine` | List authenticated user's sessions |
