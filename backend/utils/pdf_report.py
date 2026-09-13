@@ -23,11 +23,21 @@ def generate_report_pdf(report: FinalReport) -> bytes:
     elements.append(Paragraph(f"Recommendation: {report.recommendation}", styles["Heading2"]))
     elements.append(Spacer(1, 12))
 
-    # Section grades table
-    table_data = [["Section", "Score", "Comments"]]
+    # Section grades table — cells use Paragraph so long comments wrap within
+    # the column instead of expanding the table past the page margins, and
+    # escape() so LLM-derived text can't inject ReportLab markup.
+    table_data = [[
+        Paragraph("Section", styles["Normal"]),
+        Paragraph("Score", styles["Normal"]),
+        Paragraph("Comments", styles["Normal"]),
+    ]]
     for g in report.section_grades:
-        table_data.append([g.section_name, str(g.score), g.comments])
-    table = Table(table_data, hAlign="LEFT")
+        table_data.append([
+            Paragraph(escape(g.section_name), styles["Normal"]),
+            Paragraph(str(g.score), styles["Normal"]),
+            Paragraph(escape(g.comments), styles["Normal"]),
+        ])
+    table = Table(table_data, hAlign="LEFT", colWidths=[110, 45, 296])
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),

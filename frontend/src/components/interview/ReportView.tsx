@@ -1,5 +1,6 @@
 import type { FinalReport } from "@/api/client";
 import { downloadArtifact } from "@/api/client";
+import type { CSSProperties } from "react";
 import { useRef, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import jsPDF from "jspdf";
@@ -26,6 +27,7 @@ export function ReportView({ report, sessionId, onDone }: ReportViewProps) {
   const captureRef = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -171,10 +173,23 @@ export function ReportView({ report, sessionId, onDone }: ReportViewProps) {
     }
   };
 
+  async function handleDownloadTranscript() {
+    setDownloadError(null);
+    try {
+      await downloadArtifact(sessionId, "transcript");
+    } catch {
+      setDownloadError("Could not download the transcript. Please try again.");
+    }
+  }
+
   return (
     <div className="aura-report-page">
       <div className="page-ambient" aria-hidden="true"></div>
       <div className="grid-mesh" aria-hidden="true"></div>
+
+      {downloadError && (
+        <div className="download-error" role="alert" style={{ position: "relative", zIndex: 10, margin: "12px auto 0", maxWidth: 1200 }}>{downloadError}</div>
+      )}
 
       {/* Nav */}
       <nav className="nav" aria-label="Primary">
@@ -199,7 +214,7 @@ export function ReportView({ report, sessionId, onDone }: ReportViewProps) {
               {dropdownOpen && (
                 <div className="dropdown-menu" style={{ position: "absolute", right: 0, top: "100%", marginTop: 4, background: "#1c1c22", border: "1px solid #27272a", borderRadius: 8, padding: "4px 0", zIndex: 50, minWidth: 160 }}>
                   <button className="dropdown-item" style={{ display: "block", width: "100%", padding: "8px 12px", background: "none", border: "none", color: "#fafafa", textAlign: "left", cursor: "pointer", fontSize: 14 }} onClick={() => { setDropdownOpen(false); handleExportPDF(); }}>PDF Report</button>
-                  <button className="dropdown-item" style={{ display: "block", width: "100%", padding: "8px 12px", background: "none", border: "none", color: "#fafafa", textAlign: "left", cursor: "pointer", fontSize: 14 }} onClick={() => { setDropdownOpen(false); void downloadArtifact(sessionId, 'transcript'); }}>Transcript (.json)</button>
+                  <button className="dropdown-item" style={{ display: "block", width: "100%", padding: "8px 12px", background: "none", border: "none", color: "#fafafa", textAlign: "left", cursor: "pointer", fontSize: 14 }} onClick={() => { setDropdownOpen(false); void handleDownloadTranscript(); }}>Transcript (.json)</button>
                 </div>
               )}
             </div>
@@ -233,7 +248,7 @@ export function ReportView({ report, sessionId, onDone }: ReportViewProps) {
                 {dropdownOpen && (
                   <div className="dropdown-menu" style={{ position: "absolute", right: 0, top: "100%", marginTop: 4, background: "#1c1c22", border: "1px solid #27272a", borderRadius: 8, padding: "4px 0", zIndex: 50, minWidth: 160 }}>
                     <button className="dropdown-item" style={{ display: "block", width: "100%", padding: "8px 12px", background: "none", border: "none", color: "#fafafa", textAlign: "left", cursor: "pointer", fontSize: 14 }} onClick={() => { setDropdownOpen(false); handleExportPDF(); }}>PDF Report</button>
-                    <button className="dropdown-item" style={{ display: "block", width: "100%", padding: "8px 12px", background: "none", border: "none", color: "#fafafa", textAlign: "left", cursor: "pointer", fontSize: 14 }} onClick={() => { setDropdownOpen(false); void downloadArtifact(sessionId, 'transcript'); }}>Transcript (.json)</button>
+                    <button className="dropdown-item" style={{ display: "block", width: "100%", padding: "8px 12px", background: "none", border: "none", color: "#fafafa", textAlign: "left", cursor: "pointer", fontSize: 14 }} onClick={() => { setDropdownOpen(false); void handleDownloadTranscript(); }}>Transcript (.json)</button>
                   </div>
                 )}
               </div>
@@ -279,7 +294,7 @@ export function ReportView({ report, sessionId, onDone }: ReportViewProps) {
               </div>
 
               <div className="score-ring-wrap" aria-hidden="true">
-                <div className="score-ring" style={{ ['--p' as any]: overallPct }}></div>
+                <div className="score-ring" style={{ "--p": overallPct } as CSSProperties}></div>
                 <div className="score-center">
                   <div className="score-num">{report.overall_score}<span className="denom">/100</span></div>
                   <div className="score-band">{rec.text}</div>
@@ -345,7 +360,7 @@ export function ReportView({ report, sessionId, onDone }: ReportViewProps) {
                           <span className="score">{g.score}<span className="denom"> / 10</span></span>
                         </div>
                         <div className="meter" aria-hidden="true">
-                          <i style={{ ['--w' as any]: `${pct}%` }}></i>
+                          <i style={{ "--w": `${pct}%` } as CSSProperties}></i>
                         </div>
                         <div className="meter-foot">
                           <span>0</span><span>10</span>
@@ -383,7 +398,7 @@ export function ReportView({ report, sessionId, onDone }: ReportViewProps) {
                 {dropdownOpen && (
                   <div className="dropdown-menu" style={{ position: "absolute", right: 0, bottom: "100%", marginBottom: 4, background: "#1c1c22", border: "1px solid #27272a", borderRadius: 8, padding: "4px 0", zIndex: 50, minWidth: 160 }}>
                     <button className="dropdown-item" style={{ display: "block", width: "100%", padding: "8px 12px", background: "none", border: "none", color: "#fafafa", textAlign: "left", cursor: "pointer", fontSize: 14 }} onClick={() => { setDropdownOpen(false); handleExportPDF(); }}>PDF Report</button>
-                    <button className="dropdown-item" style={{ display: "block", width: "100%", padding: "8px 12px", background: "none", border: "none", color: "#fafafa", textAlign: "left", cursor: "pointer", fontSize: 14 }} onClick={() => { setDropdownOpen(false); void downloadArtifact(sessionId, 'transcript'); }}>Transcript (.json)</button>
+                    <button className="dropdown-item" style={{ display: "block", width: "100%", padding: "8px 12px", background: "none", border: "none", color: "#fafafa", textAlign: "left", cursor: "pointer", fontSize: 14 }} onClick={() => { setDropdownOpen(false); void handleDownloadTranscript(); }}>Transcript (.json)</button>
                   </div>
                 )}
               </div>

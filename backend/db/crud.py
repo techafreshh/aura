@@ -45,60 +45,77 @@ async def upsert_oauth_user(
     provider_id: str,
     avatar_url: str | None = None,
 ) -> User:
-    """Resolve a provider identity, linking verified providers by email."""
+    """Resolve a provider identity, linking verified providers by email.
+
+    OAuth callbacks can race (retries, concurrent tabs), so every
+    ``IntegrityError`` is rolled back and resolved against the rows the
+    winning transaction committed, instead of surfacing a 500.
+    """
     email = email.strip().lower()
-    identity_result = await db.execute(
-        select(OAuthIdentity).where(
-            OAuthIdentity.provider == provider,
-            OAuthIdentity.provider_id == provider_id,
-        )
-    )
-    identity = identity_result.scalar_one_or_none()
-    if identity:
-        user = await get_user_by_id(db, identity.user_id)
-        if user:
-            user.name, user.avatar_url = name, avatar_url
-            user.last_login_at = datetime.now(timezone.utc)
-            identity.email = email
-            await db.commit()
-            await db.refresh(user)
-            return user
 
-    user_result = await db.execute(select(User).where(func.lower(User.email) == email))
-    user = user_result.scalar_one_or_none()
-    if not user:
-        user = User(email=email, name=name, provider=provider, provider_id=provider_id, avatar_url=avatar_url)
-        db.add(user)
-        await db.flush()
-    else:
-        user.name, user.avatar_url = name, avatar_url
-        user.last_login_at = datetime.now(timezone.utc)
-
-    db.add(OAuthIdentity(user_id=user.id, provider=provider, provider_id=provider_id, email=email))
-    try:
-        await db.commit()
-    except IntegrityError:
-        # OAuth callbacks can be retried or completed in concurrent tabs.
-        await db.rollback()
-        existing_identity = await db.execute(
+    async def _resolve_identity() -> OAuthIdentity | None:
+        result = await db.execute(
             select(OAuthIdentity).where(
                 OAuthIdentity.provider == provider,
                 OAuthIdentity.provider_id == provider_id,
             )
         )
-        identity = existing_identity.scalar_one_or_none()
+        return result.scalar_one_or_none()
+
+    last_error: IntegrityError | None = None
+    for _ in range(2):
+        identity = await _resolve_identity()
         if identity:
-            existing_user = await get_user_by_id(db, identity.user_id)
-            if existing_user:
-                return existing_user
+            user = await get_user_by_id(db, identity.user_id)
+            if user:
+                user.name, user.avatar_url = name, avatar_url
+                user.last_login_at = datetime.now(timezone.utc)
+                identity.email = email
+                await db.commit()
+                await db.refresh(user)
+                return user
+
         user_result = await db.execute(select(User).where(func.lower(User.email) == email))
         user = user_result.scalar_one_or_none()
         if not user:
-            raise
+            user = User(email=email, name=name, provider=provider, provider_id=provider_id, avatar_url=avatar_url)
+            db.add(user)
+            try:
+                # Flush now so user.id exists for the identity row below.
+                await db.flush()
+            except IntegrityError as exc:
+                # A concurrent callback created the same email first.
+                last_error = exc
+                await db.rollback()
+                continue
+        else:
+            user.name, user.avatar_url = name, avatar_url
+            user.last_login_at = datetime.now(timezone.utc)
+
         db.add(OAuthIdentity(user_id=user.id, provider=provider, provider_id=provider_id, email=email))
-        await db.commit()
-    await db.refresh(user)
-    return user
+        try:
+            await db.commit()
+            await db.refresh(user)
+            return user
+        except IntegrityError as exc:
+            # The identity (or user+identity pair) was committed concurrently.
+            last_error = exc
+            await db.rollback()
+
+    # Both attempts raced with another callback; resolve read-only against
+    # whatever survived, preferring the provider identity.
+    identity = await _resolve_identity()
+    if identity:
+        existing_user = await get_user_by_id(db, identity.user_id)
+        if existing_user:
+            return existing_user
+    user_result = await db.execute(select(User).where(func.lower(User.email) == email))
+    user = user_result.scalar_one_or_none()
+    if user:
+        return user
+    if last_error is None:
+        raise RuntimeError("upsert_oauth_user failed to resolve a user")
+    raise last_error
 
 
 async def get_user_by_id(db: AsyncSession, user_id: str) -> User | None:

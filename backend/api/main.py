@@ -23,7 +23,7 @@ from api.deps import get_current_user, require_admin
 from api.auth import router as auth_router
 from db.crud import create_session, get_session, get_user_by_id, update_session_report, update_session_transcript, list_user_sessions, list_all_sessions
 from db.database import async_session
-from utils.config import ENVIRONMENT, JWT_SECRET
+from utils.config import ENVIRONMENT, OAUTH_SESSION_SECRET
 
 import sentry_sdk
 
@@ -42,12 +42,6 @@ app = FastAPI(title="AI Interviewer API")
 setup_langfuse()
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=os.getenv("OAUTH_SESSION_SECRET") or os.getenv("JWT_SECRET") or "development-oauth-session-secret",
-    https_only=ENVIRONMENT == "production",
-    same_site="lax",
-)
 
 app.include_router(auth_router)
 
@@ -70,10 +64,12 @@ app.add_middleware(
 
 # Authlib's OAuth flow stores the CSRF state in the Starlette session, which
 # requires SessionMiddleware; without it /auth/{provider} raises at runtime.
+# Registered exactly once — the signing secret is resolved in utils/config.py.
 app.add_middleware(
     SessionMiddleware,
-    secret_key=JWT_SECRET,
+    secret_key=OAUTH_SESSION_SECRET,
     https_only=(ENVIRONMENT == "production"),
+    same_site="lax",
 )
 
 MAX_PDF_SIZE = 10 * 1024 * 1024  # 10 MB
@@ -156,7 +152,10 @@ async def get_plan(session_id: str, request: Request, user=Depends(get_current_u
     if not session:
         raise HTTPException(status_code=404, detail="Interview plan not found for the given session ID.")
 
-    if user.role != "admin" and session.user_id != user.id:
+    # The worker fetches the plan with WORKER_API_KEY (same bypass as /report
+    # and /transcript); without it the worker silently falls back to a generic plan.
+    is_worker = getattr(user, "role", None) == "worker"
+    if not is_worker and user.role != "admin" and session.user_id != user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
     async with async_session() as db:

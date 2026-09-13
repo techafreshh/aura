@@ -172,3 +172,5 @@
 @media (prefers-reduced-motion: reduce) {
   .aura-report-page * { animation: none !important; transition: none !important; }
 }
+
+.aura-report-page .download-error { padding: 12px 16px; border: 1px solid rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.08); color: #fca5a5; border-radius: var(--radius); font-size: 14px; }

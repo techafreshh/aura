@@ -82,6 +82,47 @@ async def test_get_plan_not_found():
 
 
 @pytest.mark.asyncio
+async def test_worker_can_fetch_plan_with_api_key():
+    """The worker (WORKER_API_KEY) must be able to read the plan it interviews against.
+
+    Regression: without a worker bypass in get_plan the worker got a 403 and
+    silently fell back to a generic, non-personalized interview plan.
+    """
+    from api.deps import get_current_user
+
+    plan = InterviewPlan(candidate_name="Worker Plan", extracted_skills=["Docker"], question_bank=["Q1"])
+    async with async_session() as db:
+        session = await create_session(db, user_id="plan-owner-id", candidate_name="Worker Plan", plan_json=plan.model_dump_json())
+
+    saved_override = app.dependency_overrides.get(get_current_user)
+    app.dependency_overrides.pop(get_current_user, None)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.get(f"/plan/{session.id}", headers={"Authorization": "Bearer test-worker-key"})
+    finally:
+        app.dependency_overrides[get_current_user] = saved_override
+    assert response.status_code == 200
+    body = response.json()
+    assert body["plan"]["candidate_name"] == "Worker Plan"
+    assert body["user_id"] == "plan-owner-id"
+
+
+@pytest.mark.asyncio
+async def test_worker_key_cannot_act_as_arbitrary_user_token():
+    """A random bearer token that is neither the worker key nor a valid JWT gets 401."""
+    from api.deps import get_current_user
+
+    saved_override = app.dependency_overrides.get(get_current_user)
+    app.dependency_overrides.pop(get_current_user, None)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.get("/plan/any-session-id", headers={"Authorization": "Bearer not-a-real-token"})
+    finally:
+        app.dependency_overrides[get_current_user] = saved_override
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_get_plan_success():
     mock_plan = InterviewPlan(
         candidate_name="Test Candidate",
