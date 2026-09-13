@@ -9,10 +9,10 @@ def test_limiter_uses_redis_url_when_set(monkeypatch):
     import importlib
     import utils.config as config_module
     importlib.reload(config_module)
-    import api.main as main_module
+    import api.rate_limit as rate_limit_module
+    importlib.reload(rate_limit_module)
 
-    importlib.reload(main_module)
-    assert main_module.limiter._storage_uri == "redis://localhost:6379/0"
+    assert rate_limit_module.limiter._storage_uri == "redis://localhost:6379/0"
 
 
 def test_limiter_falls_back_to_memory_when_no_redis(monkeypatch):
@@ -22,11 +22,11 @@ def test_limiter_falls_back_to_memory_when_no_redis(monkeypatch):
     import importlib
     import utils.config as config_module
     importlib.reload(config_module)
-    import api.main as main_module
+    import api.rate_limit as rate_limit_module
+    importlib.reload(rate_limit_module)
 
-    importlib.reload(main_module)
-    assert main_module.limiter._storage_uri is None
-    assert main_module.limiter._in_memory_fallback_enabled is True
+    assert rate_limit_module.limiter._storage_uri is None
+    assert rate_limit_module.limiter._in_memory_fallback_enabled is True
 
 
 @pytest.mark.asyncio

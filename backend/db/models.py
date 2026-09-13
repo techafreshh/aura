@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, Text, DateTime, ForeignKey, Index, UniqueConstraint
+from sqlalchemy import String, Text, DateTime, ForeignKey, Index, UniqueConstraint, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
 from db.database import Base
 
@@ -20,9 +20,19 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255), default="")
     avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    provider: Mapped[str] = mapped_column(String(20))  # "google" | "github"
+    provider: Mapped[str] = mapped_column(String(20))  # "google" | "github" | "email"
     provider_id: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(20), default="candidate")  # "admin" | "candidate"
+    # Email/password auth (None for OAuth-only accounts). OAuth emails are
+    # provider-verified, so those accounts are trusted immediately.
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    # SHA-256 hash of the one-time token emailed to the user; the raw token
+    # only ever lives in the email link, never in the database.
+    verification_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    verification_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reset_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reset_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     last_login_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 

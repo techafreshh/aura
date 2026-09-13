@@ -5,37 +5,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.models import User, OAuthIdentity, InterviewSession
 
 
-async def upsert_user(
-    db: AsyncSession,
-    *,
-    email: str,
-    name: str,
-    provider: str,
-    provider_id: str,
-    avatar_url: str | None = None,
-) -> User:
-    result = await db.execute(select(User).where(User.email == email))
-    user = result.scalar_one_or_none()
-
-    if user:
-        user.name = name
-        user.avatar_url = avatar_url
-        user.last_login_at = datetime.now(timezone.utc)
-    else:
-        user = User(
-            email=email,
-            name=name,
-            provider=provider,
-            provider_id=provider_id,
-            avatar_url=avatar_url,
-        )
-        db.add(user)
-
-    await db.commit()
-    await db.refresh(user)
-    return user
-
-
 async def upsert_oauth_user(
     db: AsyncSession,
     *,
@@ -44,8 +13,14 @@ async def upsert_oauth_user(
     provider: str,
     provider_id: str,
     avatar_url: str | None = None,
-) -> User:
+) -> tuple[User, bool]:
     """Resolve a provider identity, linking verified providers by email.
+
+    Returns ``(user, created)``; ``created`` is True only when a brand-new
+    account is inserted, so the OAuth callback can send the welcome email once.
+    Providers only hand back verified emails (enforced in the callback), so the
+    account is marked ``email_verified`` immediately — this is what lets the
+    user later set a password and sign in with it.
 
     OAuth callbacks can race (retries, concurrent tabs), so every
     ``IntegrityError`` is rolled back and resolved against the rows the
@@ -70,16 +45,26 @@ async def upsert_oauth_user(
             if user:
                 user.name, user.avatar_url = name, avatar_url
                 user.last_login_at = datetime.now(timezone.utc)
+                user.email_verified = True
                 identity.email = email
                 await db.commit()
                 await db.refresh(user)
-                return user
+                return user, False
 
         user_result = await db.execute(select(User).where(func.lower(User.email) == email))
         user = user_result.scalar_one_or_none()
+        created = False
         if not user:
-            user = User(email=email, name=name, provider=provider, provider_id=provider_id, avatar_url=avatar_url)
+            user = User(
+                email=email,
+                name=name,
+                provider=provider,
+                provider_id=provider_id,
+                avatar_url=avatar_url,
+                email_verified=True,
+            )
             db.add(user)
+            created = True
             try:
                 # Flush now so user.id exists for the identity row below.
                 await db.flush()
@@ -91,12 +76,13 @@ async def upsert_oauth_user(
         else:
             user.name, user.avatar_url = name, avatar_url
             user.last_login_at = datetime.now(timezone.utc)
+            user.email_verified = True
 
         db.add(OAuthIdentity(user_id=user.id, provider=provider, provider_id=provider_id, email=email))
         try:
             await db.commit()
             await db.refresh(user)
-            return user
+            return user, created
         except IntegrityError as exc:
             # The identity (or user+identity pair) was committed concurrently.
             last_error = exc
@@ -108,11 +94,17 @@ async def upsert_oauth_user(
     if identity:
         existing_user = await get_user_by_id(db, identity.user_id)
         if existing_user:
-            return existing_user
+            if not existing_user.email_verified:
+                existing_user.email_verified = True
+                await db.commit()
+            return existing_user, False
     user_result = await db.execute(select(User).where(func.lower(User.email) == email))
     user = user_result.scalar_one_or_none()
     if user:
-        return user
+        if not user.email_verified:
+            user.email_verified = True
+            await db.commit()
+        return user, False
     if last_error is None:
         raise RuntimeError("upsert_oauth_user failed to resolve a user")
     raise last_error
@@ -121,6 +113,44 @@ async def upsert_oauth_user(
 async def get_user_by_id(db: AsyncSession, user_id: str) -> User | None:
     result = await db.execute(select(User).where(User.id == user_id))
     return result.scalar_one_or_none()
+
+
+async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
+    result = await db.execute(select(User).where(User.email == email))
+    return result.scalar_one_or_none()
+
+
+async def store_verification_token(
+    db: AsyncSession, user: User, token_hash: str, expires_at: datetime
+) -> None:
+    user.verification_token_hash = token_hash
+    user.verification_token_expires_at = expires_at
+    await db.commit()
+
+
+async def mark_email_verified(db: AsyncSession, user: User) -> None:
+    user.email_verified = True
+    user.verification_token_hash = None
+    user.verification_token_expires_at = None
+    await db.commit()
+
+
+async def store_reset_token(
+    db: AsyncSession, user: User, token_hash: str, expires_at: datetime
+) -> None:
+    user.reset_token_hash = token_hash
+    user.reset_token_expires_at = expires_at
+    await db.commit()
+
+
+async def set_user_password(db: AsyncSession, user: User, password_hash: str) -> None:
+    # Reset-link clicks prove mailbox ownership, so a previously unverified
+    # account gets verified here as well.
+    user.password_hash = password_hash
+    user.email_verified = True
+    user.reset_token_hash = None
+    user.reset_token_expires_at = None
+    await db.commit()
 
 
 async def create_session(
