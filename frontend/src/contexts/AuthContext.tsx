@@ -5,7 +5,7 @@ interface User {
   id: string
   email: string
   name: string
-  role: 'admin' | 'candidate'
+  role: 'admin' | 'candidate' | 'recruiter' | ''
   avatar_url?: string
 }
 

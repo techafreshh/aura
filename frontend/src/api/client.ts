@@ -41,9 +41,12 @@ export interface FinalReport {
   summary: string;
 }
 
-export const uploadResume = async (file: File): Promise<UploadResponse> => {
+export const uploadResume = async (file: File, jobDescription?: string): Promise<UploadResponse> => {
   const formData = new FormData();
   formData.append('file', file);
+  if (jobDescription && jobDescription.trim()) {
+    formData.append('job_description', jobDescription.trim());
+  }
   const response = await api.post<UploadResponse>('/upload', formData, {
     headers: {
       'Content-Type': 'multipart/form-data',
@@ -189,3 +192,111 @@ export const resetPassword = async (token: string, newPassword: string): Promise
 };
 
 export default api;
+
+
+// ---------------------------------------------------------------- Invites
+
+export interface InviteOut {
+  invite_id: string;
+  title: string;
+  context: string | null;
+  questions: string[];
+  token: string;
+  status: 'pending' | 'completed' | 'cancelled';
+  created_at: string;
+  completed_at: string | null;
+  candidate_user_id: string | null;
+  session_id: string | null;
+  candidate_name: string | null;
+  overall_score: number | null;
+  recommendation: 'Hire' | 'No Hire' | 'Strong Hire' | 'Hold' | null;
+}
+
+export interface RecruiterInvitesResponse {
+  invites: InviteOut[];
+  quota_used: number;
+  quota_limit: number;
+}
+
+export interface InviteDetail extends InviteOut {
+  report: FinalReport | null;
+  transcript: TranscriptEntryRead[] | null;
+}
+
+export interface InvitePreview {
+  title: string;
+  context: string | null;
+  questions: string[];
+  recruiter_name: string;
+}
+
+export interface InviteStartResponse {
+  session_id: string;
+  plan: InterviewPlan;
+}
+
+export interface InviteCreatePayload {
+  title: string;
+  context?: string;
+  questions: string[];
+}
+
+export const createInvite = async (payload: InviteCreatePayload): Promise<InviteOut> => {
+  const response = await api.post<InviteOut>('/recruiter/invites', payload);
+  return response.data;
+};
+
+export const listRecruiterInvites = async (): Promise<RecruiterInvitesResponse> => {
+  const response = await api.get<RecruiterInvitesResponse>('/recruiter/invites');
+  return response.data;
+};
+
+export const getRecruiterInvite = async (inviteId: string): Promise<InviteDetail> => {
+  const response = await api.get<InviteDetail>(`/recruiter/invites/${inviteId}`);
+  return response.data;
+};
+
+export const cancelInvite = async (inviteId: string): Promise<InviteOut> => {
+  const response = await api.post<InviteOut>(`/recruiter/invites/${inviteId}/cancel`);
+  return response.data;
+};
+
+export const getInvitePreview = async (token: string): Promise<InvitePreview> => {
+  const response = await api.get<InvitePreview>(`/invite/${token}`);
+  return response.data;
+};
+
+export const startInvite = async (token: string): Promise<InviteStartResponse> => {
+  const response = await api.post<InviteStartResponse>(`/invite/${token}/start`);
+  return response.data;
+};
+
+export const uploadAudio = async (sessionId: string, blob: Blob, ext: 'webm' | 'mp4'): Promise<void> => {
+  const formData = new FormData();
+  formData.append('file', blob, `audio.${ext}`);
+  await api.post(`/audio/${sessionId}`, formData);
+};
+
+export const setUserRole = async (role: 'candidate' | 'recruiter'): Promise<{ token: string; user: { id: string; email: string; name: string; role: string; avatar_url?: string | null } }> => {
+  const response = await api.post('/auth/role', { role });
+  return response.data;
+};
+
+/** Fetch a protected artifact as a blob (plain links cannot carry the JWT header). */
+export const fetchBlob = async (path: string): Promise<Blob> => {
+  const response = await api.get(path, { responseType: 'blob' });
+  return response.data;
+};
+
+/** Download a protected artifact via authenticated fetch + anchor click. */
+export const downloadFile = async (path: string, filename: string): Promise<void> => {
+  const blob = await fetchBlob(path);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+};

@@ -21,7 +21,20 @@ export function AuthCallback() {
         const user = JSON.parse(decodeURIComponent(userParam))
         setAuth(token, user)
         window.history.replaceState(null, '', window.location.pathname + window.location.search)
-        navigate(user.role === 'admin' ? '/admin' : '/interview', { replace: true })
+        // Deep links (e.g. /invite/:token) survive the OAuth round-trip
+        const returnTo = sessionStorage.getItem('aura_return_to')
+        sessionStorage.removeItem('aura_return_to')
+        if (returnTo) {
+          navigate(returnTo, { replace: true })
+        } else if (user.role === 'admin') {
+          navigate('/admin', { replace: true })
+        } else if (user.role === 'recruiter') {
+          navigate('/recruiter', { replace: true })
+        } else if (user.role === '') {
+          navigate('/choose-role', { replace: true })
+        } else {
+          navigate('/interview', { replace: true })
+        }
       } catch {
         window.history.replaceState(null, '', window.location.pathname + window.location.search)
         navigate('/', { replace: true })

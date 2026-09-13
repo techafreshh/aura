@@ -13,6 +13,7 @@ import '@/styles/aura-pre.css'
 export function InterviewFlow() {
   const { step, sessionId, plan, report, startPreview, startInterview, showReport, reset } = useInterview()
   const [file, setFile] = useState<File | null>(null)
+  const [jobDescription, setJobDescription] = useState('')
   const [isUploading, setIsUploading] = useState(false)
   const [token, setToken] = useState<string | null>(null)
   const [isConnecting, setIsConnecting] = useState(false)
@@ -27,7 +28,7 @@ export function InterviewFlow() {
     if (!file) return
     setIsUploading(true)
     try {
-      const data = await uploadResume(file)
+      const data = await uploadResume(file, jobDescription)
       startPreview(data)
       toast({ title: "Resume parsed", description: `Plan ready for ${data.plan_summary.candidate_name}.` })
     } catch (error) {
@@ -114,6 +115,19 @@ export function InterviewFlow() {
                 )}
                 <input type="file" accept=".pdf" onChange={handleFileChange} />
               </label>
+
+              <label className="label-row" htmlFor="job-description" style={{ marginTop: 18 }}>
+                Job description <span style={{ opacity: 0.55 }}>(optional — steers the interview toward this role)</span>
+              </label>
+              <textarea
+                id="job-description"
+                placeholder="Paste the job posting here and Aura will tailor the interview questions to it — like a practice interview for the job you actually want."
+                value={jobDescription}
+                onChange={e => setJobDescription(e.target.value)}
+                rows={4}
+                maxLength={4000}
+                style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: '12px 14px', color: 'inherit', fontSize: 14, resize: 'vertical' }}
+              />
 
               <div className="btn-row">
                 <button className="btn btn-primary" disabled={!file || isUploading} onClick={handleUpload}>

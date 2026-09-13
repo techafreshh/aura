@@ -51,6 +51,7 @@ export function MyInterviews() {
           <div className="nav-links">
             <Link to="/interview">New interview</Link>
             <Link to="/my-interviews" className="active">My interviews</Link>
+            {(user?.role === 'recruiter' || user?.role === 'admin') && <Link to="/recruiter">Recruiter</Link>}
             {user?.role === 'admin' && <Link to="/admin">Admin dashboard</Link>}
           </div>
           <div className="nav-cta">
