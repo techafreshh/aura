@@ -7,6 +7,7 @@ from typing import Optional
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Query, BackgroundTasks, Depends
 from fastapi.responses import Response, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -21,7 +22,7 @@ from api.deps import get_current_user, require_admin
 from api.auth import router as auth_router
 from db.crud import create_session, get_session, get_user_by_id, update_session_report, update_session_transcript, list_user_sessions, list_all_sessions
 from db.database import async_session
-from utils.config import ENVIRONMENT
+from utils.config import ENVIRONMENT, JWT_SECRET
 
 import sentry_sdk
 
@@ -58,6 +59,14 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+# Authlib's OAuth flow stores the CSRF state in the Starlette session, which
+# requires SessionMiddleware; without it /auth/{provider} raises at runtime.
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=JWT_SECRET,
+    https_only=(ENVIRONMENT == "production"),
 )
 
 MAX_PDF_SIZE = 10 * 1024 * 1024  # 10 MB

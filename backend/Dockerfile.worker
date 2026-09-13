@@ -9,6 +9,7 @@ RUN uv sync --frozen --no-dev
 
 COPY api/ api/
 COPY agent/ agent/
+COPY db/ db/
 COPY models/ models/
 COPY utils/ utils/
 COPY __init__.py .
