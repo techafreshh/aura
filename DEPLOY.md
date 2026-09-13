@@ -67,7 +67,7 @@ git pull
 docker compose up -d --build
 ```
 
-> **Heads up on rolling updates (post PR #10):** all previously-open API endpoints now require authentication. Any unupdated client (monitoring probes, e2e tests, internal tooling, curl scripts) that hits `/upload`, `/plan/{id}`, `/report/{id}`, `/transcript/{id}`, `/upload-pdf/{id}`, `/download/{id}/{type}`, or `/report-stream/{id}` without an `Authorization: Bearer <jwt>` (or the worker API key) will start receiving `401`. Coordinate a restart window if any in-flight interviews are active — the previous in-memory `plans`/`reports` stores were replaced by SQLite, so on-disk interview state on a prior deploy is orphaned until those sessions finish.
+> **Heads up on rolling updates (post PR #10):** all previously-open API endpoints now require authentication. Any unupdated client (monitoring probes, e2e tests, internal tooling, curl scripts) that hits `/upload`, `/plan/{id}`, `/token`, `/report/{id}`, `/transcript/{id}`, `/upload-pdf/{id}`, or `/download/{id}/{type}` without an `Authorization: Bearer <jwt>` (or the worker API key) will start receiving `401`. `/token` additionally only mints room tokens for sessions owned by the caller (or admins). Coordinate a restart window if any in-flight interviews are active — the previous in-memory `plans`/`reports` stores were replaced by SQLite, so on-disk interview state on a prior deploy is orphaned until those sessions finish.
 
 ## Post-Deployment Verification
 
@@ -84,7 +84,11 @@ After the first deploy with PR #10, verify the auth path end-to-end:
 
 - **Engine:** SQLite via SQLAlchemy async (`aiosqlite`).
 - **Location:** `backend/data/aura.db` (gitignored). Mount a persistent volume here.
-- **Migrations:** none — schema is created at startup via `Base.metadata.create_all` (`backend/db/database.py`). This is non-destructive: existing tables are left alone, missing tables are added. **If you are upgrading from a pre-PR-#10 deploy with a leftover `aura.db`, review the new tables (`users`, `interview_sessions`) and decide whether to keep or wipe the file.**
+- **Migrations:** Alembic (`backend/migrations/`), applied automatically at backend startup by the FastAPI lifespan handler in `api/main.py`:
+  - DB already tracked by Alembic (`alembic_version` table present) → `upgrade head`.
+  - Pre-Alembic DB (tables exist but no `alembic_version` — e.g. a `create_all`-era deploy) → stamped at head, schema left untouched.
+  - Fresh DB → schema created by the initial migration.
+  To change the schema: edit `db/models.py`, then run `cd backend && uv run alembic revision --autogenerate -m "describe the change"`, review the generated file, and commit it together with the model change. Migrations run inside the existing backend container — no extra deploy step.
 - **Tables:**
   - `users` — `id`, `email` (unique), `name`, `avatar_url`, `provider`, `provider_id`, `role` (`candidate` | `admin`), `created_at`, `last_login_at`.
   - `interview_sessions` — `id`, `user_id` (FK), `candidate_name`, `plan_json`, `report_json`, `transcript_json`, `status` (`pending` | `in_progress` | `completed`), `created_at`, `completed_at`.
