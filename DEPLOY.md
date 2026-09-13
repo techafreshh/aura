@@ -30,6 +30,7 @@ cp .env.example .env
 
    **Required auth/identity variables (post PR #10):**
    - `JWT_SECRET` — generate with `python -c "import secrets; print(secrets.token_hex(32))"`. Required in production; the backend will refuse to start without a strong (≥32 chars, not on the known-bad list) value.
+   - `OAUTH_SESSION_SECRET` — another independently generated secret used to sign the short-lived OAuth state cookie.
    - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — from Google Cloud Console → APIs & Services → Credentials → Create OAuth 2.0 Client (Web application).
    - `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` — from GitHub → Settings → Developer settings → OAuth Apps.
    - `ADMIN_EMAIL` — the operator's email; first login with this address grants the `admin` role.
@@ -37,8 +38,10 @@ cp .env.example .env
    - `FRONTEND_URL` — public URL of the frontend (e.g. `https://yourdomain.com`). Must match the OAuth app's authorized redirect URIs.
 
    **OAuth callback URLs to register with each provider:**
-   - Google: `{FRONTEND_URL}/auth/google/callback` (or configure the redirect to your backend's `/auth/google/callback` per your proxy routing)
-   - GitHub: `{FRONTEND_URL}/auth/github/callback`
+   - Google: `https://yourdomain.com/api/auth/google/callback`
+   - GitHub: `https://yourdomain.com/api/auth/github/callback`
+
+   The provider callback must target the backend through nginx's `/api` proxy. `FRONTEND_URL` is where the backend redirects after it has issued the JWT.
 
 4. Build and start all services:
 
@@ -103,6 +106,10 @@ The backend and worker are not exposed to the internet. Only the frontend contai
 2. Frontend navigates to `/auth/{provider}` on the backend, which 302s to the provider's consent screen.
 3. Provider redirects back to `/auth/{provider}/callback` on the backend; the backend upserts the user into SQLite, issues a 7-day HS256 JWT, and 302s to `{FRONTEND_URL}/auth/callback#token=...&user=...`.
 4. The token is delivered in the URL **fragment** (not query string) so it never reaches the server in `Referer` headers or access logs.
-5. `AuthCallback.tsx` reads the fragment, stores the token in `localStorage` as `auth_token`, then calls `history.replaceState` to clear the fragment.
+5. `AuthCallback.tsx` reads the fragment, stores the token in `localStorage` as `aura_token`, then calls `history.replaceState` to clear the fragment.
 6. Subsequent API calls send `Authorization: Bearer <jwt>` via an axios interceptor; the backend's `get_current_user` decodes the JWT, re-reads `role` from the DB on every request, and rejects with `401` on missing/expired/invalid tokens.
 7. The worker authenticates with `Authorization: Bearer $WORKER_API_KEY`; a `_WorkerUser` sentinel is returned so endpoint authorization can grant worker-only write access (`/report`, `/transcript`) without impersonating a real user.
+
+### Cross-Provider Accounts
+
+Google and GitHub identities are linked to the same Aura user only when both providers return the same verified email address. Provider identities are stored separately in `oauth_identities`, so signing in with either provider resolves to the same interview history. Accounts with different emails are not merged automatically.

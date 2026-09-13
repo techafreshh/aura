@@ -94,8 +94,38 @@ def get_jwt_secret() -> str:
     return _DEV_FALLBACK_SECRET
 
 
+def get_oauth_session_secret() -> str:
+    """Return the secret signing the OAuth session cookie, defaulting to JWT_SECRET.
+
+    ``OAUTH_SESSION_SECRET`` lets operators decouple cookie signing from the JWT
+    secret. When set it must pass the same strength rules as ``JWT_SECRET``;
+    when unset (or weak outside production) the validated ``JWT_SECRET`` is
+    used so exactly one session secret exists. A separate-but-valid secret
+    must never silently coexist with a second ``SessionMiddleware`` — the
+    middleware is registered exactly once in ``api/main.py`` with this value.
+    """
+    raw = os.getenv("OAUTH_SESSION_SECRET", "")
+    if raw:
+        if not _is_strong_secret(raw):
+            if get_environment() == "production":
+                raise RuntimeError(
+                    "OAUTH_SESSION_SECRET is set but is weak (must be >= 32 chars "
+                    "and not a known default). Either generate one with: "
+                    "python -c 'import secrets; print(secrets.token_hex(32))' "
+                    "or unset it to sign the session cookie with JWT_SECRET."
+                )
+            print(
+                "WARNING: OAUTH_SESSION_SECRET is set but is weak; signing the "
+                "session cookie with JWT_SECRET instead."
+            )
+            return JWT_SECRET
+        return raw
+    return JWT_SECRET
+
+
 # Eagerly resolve at import time so a misconfiguration crashes the worker at
 # boot rather than at the first authenticated request. Tests that need to
 # exercise the failure path can import ``_is_strong_secret`` directly.
 JWT_SECRET: str = get_jwt_secret()
 ENVIRONMENT: str = get_environment()
+OAUTH_SESSION_SECRET: str = get_oauth_session_secret()

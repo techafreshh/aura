@@ -24,7 +24,7 @@ AUTH_HEADERS = {"Authorization": "Bearer test-token"}
 def setup_test_db():
     """Create all tables in the test DB once per session."""
     from db.database import engine, Base
-    from db.models import User, InterviewSession  # noqa: F401
+    from db.models import User, OAuthIdentity, InterviewSession  # noqa: F401
 
     async def _init():
         async with engine.begin() as conn:

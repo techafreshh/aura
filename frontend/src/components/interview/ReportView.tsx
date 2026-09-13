@@ -1,5 +1,6 @@
 import type { FinalReport } from "@/api/client";
-import { getDownloadUrl, uploadPdf } from "@/api/client";
+import { downloadArtifact } from "@/api/client";
+import type { CSSProperties } from "react";
 import { useRef, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import jsPDF from "jspdf";
@@ -26,6 +27,7 @@ export function ReportView({ report, sessionId, onDone }: ReportViewProps) {
   const captureRef = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -37,73 +39,6 @@ export function ReportView({ report, sessionId, onDone }: ReportViewProps) {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
-
-  // Auto-generate styled PDF and upload to backend for archival
-  const pdfUploaded = useRef(false);
-  useEffect(() => {
-    if (pdfUploaded.current) return;
-    pdfUploaded.current = true;
-    const timer = setTimeout(async () => {
-      const node = captureRef.current;
-      if (!node) return;
-      const EXPORT_WIDTH = 1240;
-      const originalCss = node.style.cssText;
-      node.style.width = `${EXPORT_WIDTH}px`;
-      node.style.maxWidth = `${EXPORT_WIDTH}px`;
-      node.style.background = "#09090b";
-      try {
-        const canvas = await html2canvas(node, {
-          backgroundColor: "#09090b",
-          scale: 2,
-          useCORS: true,
-          logging: false,
-          windowWidth: EXPORT_WIDTH,
-          windowHeight: node.scrollHeight,
-        });
-        const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, "image/png"));
-        if (!blob) return;
-        // Build PDF from canvas
-        const imgData = canvas.toDataURL("image/png");
-        const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
-        const pageW = pdf.internal.pageSize.getWidth();
-        const pageH = pdf.internal.pageSize.getHeight();
-        const margin = 24;
-        const printableW = pageW - margin * 2;
-        const ratio = canvas.height / canvas.width;
-        const drawW = printableW;
-        const drawH = drawW * ratio;
-        if (drawH <= pageH - margin * 2) {
-          pdf.addImage(imgData, "PNG", margin, margin, drawW, drawH, undefined, "FAST");
-        } else {
-          const pageImgH = pageH - margin * 2;
-          const pxPerPt = canvas.width / drawW;
-          const pageImgPx = pageImgH * pxPerPt;
-          let yPx = 0;
-          let isFirst = true;
-          while (yPx < canvas.height) {
-            const sliceH = Math.min(pageImgPx, canvas.height - yPx);
-            const slice = document.createElement("canvas");
-            slice.width = canvas.width;
-            slice.height = sliceH;
-            const ctx = slice.getContext("2d");
-            if (ctx) { ctx.fillStyle = "#09090b"; ctx.fillRect(0, 0, slice.width, slice.height); ctx.drawImage(canvas, 0, -yPx); }
-            const sliceData = slice.toDataURL("image/png");
-            if (!isFirst) pdf.addPage();
-            isFirst = false;
-            pdf.addImage(sliceData, "PNG", margin, margin, drawW, sliceH / pxPerPt, undefined, "FAST");
-            yPx += sliceH;
-          }
-        }
-        const pdfBlob = pdf.output("blob");
-        await uploadPdf(sessionId, pdfBlob);
-      } catch (e) {
-        console.error("Auto PDF upload failed:", e);
-      } finally {
-        node.style.cssText = originalCss;
-      }
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [sessionId]);
 
   const initials = report.candidate_name.split(" ").map(s => s[0]).slice(0, 2).join("").toUpperCase() || "C";
   const rec = recPill(report.recommendation);
@@ -238,10 +173,23 @@ export function ReportView({ report, sessionId, onDone }: ReportViewProps) {
     }
   };
 
+  async function handleDownloadTranscript() {
+    setDownloadError(null);
+    try {
+      await downloadArtifact(sessionId, "transcript");
+    } catch {
+      setDownloadError("Could not download the transcript. Please try again.");
+    }
+  }
+
   return (
     <div className="aura-report-page">
       <div className="page-ambient" aria-hidden="true"></div>
       <div className="grid-mesh" aria-hidden="true"></div>
+
+      {downloadError && (
+        <div className="download-error" role="alert" style={{ position: "relative", zIndex: 10, margin: "12px auto 0", maxWidth: 1200 }}>{downloadError}</div>
+      )}
 
       {/* Nav */}
       <nav className="nav" aria-label="Primary">
@@ -266,7 +214,7 @@ export function ReportView({ report, sessionId, onDone }: ReportViewProps) {
               {dropdownOpen && (
                 <div className="dropdown-menu" style={{ position: "absolute", right: 0, top: "100%", marginTop: 4, background: "#1c1c22", border: "1px solid #27272a", borderRadius: 8, padding: "4px 0", zIndex: 50, minWidth: 160 }}>
                   <button className="dropdown-item" style={{ display: "block", width: "100%", padding: "8px 12px", background: "none", border: "none", color: "#fafafa", textAlign: "left", cursor: "pointer", fontSize: 14 }} onClick={() => { setDropdownOpen(false); handleExportPDF(); }}>PDF Report</button>
-                  <button className="dropdown-item" style={{ display: "block", width: "100%", padding: "8px 12px", background: "none", border: "none", color: "#fafafa", textAlign: "left", cursor: "pointer", fontSize: 14 }} onClick={() => { setDropdownOpen(false); window.open(getDownloadUrl(sessionId, 'transcript'), '_blank'); }}>Transcript (.json)</button>
+                  <button className="dropdown-item" style={{ display: "block", width: "100%", padding: "8px 12px", background: "none", border: "none", color: "#fafafa", textAlign: "left", cursor: "pointer", fontSize: 14 }} onClick={() => { setDropdownOpen(false); void handleDownloadTranscript(); }}>Transcript (.json)</button>
                 </div>
               )}
             </div>
@@ -300,7 +248,7 @@ export function ReportView({ report, sessionId, onDone }: ReportViewProps) {
                 {dropdownOpen && (
                   <div className="dropdown-menu" style={{ position: "absolute", right: 0, top: "100%", marginTop: 4, background: "#1c1c22", border: "1px solid #27272a", borderRadius: 8, padding: "4px 0", zIndex: 50, minWidth: 160 }}>
                     <button className="dropdown-item" style={{ display: "block", width: "100%", padding: "8px 12px", background: "none", border: "none", color: "#fafafa", textAlign: "left", cursor: "pointer", fontSize: 14 }} onClick={() => { setDropdownOpen(false); handleExportPDF(); }}>PDF Report</button>
-                    <button className="dropdown-item" style={{ display: "block", width: "100%", padding: "8px 12px", background: "none", border: "none", color: "#fafafa", textAlign: "left", cursor: "pointer", fontSize: 14 }} onClick={() => { setDropdownOpen(false); window.open(getDownloadUrl(sessionId, 'transcript'), '_blank'); }}>Transcript (.json)</button>
+                    <button className="dropdown-item" style={{ display: "block", width: "100%", padding: "8px 12px", background: "none", border: "none", color: "#fafafa", textAlign: "left", cursor: "pointer", fontSize: 14 }} onClick={() => { setDropdownOpen(false); void handleDownloadTranscript(); }}>Transcript (.json)</button>
                   </div>
                 )}
               </div>
@@ -346,7 +294,7 @@ export function ReportView({ report, sessionId, onDone }: ReportViewProps) {
               </div>
 
               <div className="score-ring-wrap" aria-hidden="true">
-                <div className="score-ring" style={{ ['--p' as any]: overallPct }}></div>
+                <div className="score-ring" style={{ "--p": overallPct } as CSSProperties}></div>
                 <div className="score-center">
                   <div className="score-num">{report.overall_score}<span className="denom">/100</span></div>
                   <div className="score-band">{rec.text}</div>
@@ -412,7 +360,7 @@ export function ReportView({ report, sessionId, onDone }: ReportViewProps) {
                           <span className="score">{g.score}<span className="denom"> / 10</span></span>
                         </div>
                         <div className="meter" aria-hidden="true">
-                          <i style={{ ['--w' as any]: `${pct}%` }}></i>
+                          <i style={{ "--w": `${pct}%` } as CSSProperties}></i>
                         </div>
                         <div className="meter-foot">
                           <span>0</span><span>10</span>
@@ -450,7 +398,7 @@ export function ReportView({ report, sessionId, onDone }: ReportViewProps) {
                 {dropdownOpen && (
                   <div className="dropdown-menu" style={{ position: "absolute", right: 0, bottom: "100%", marginBottom: 4, background: "#1c1c22", border: "1px solid #27272a", borderRadius: 8, padding: "4px 0", zIndex: 50, minWidth: 160 }}>
                     <button className="dropdown-item" style={{ display: "block", width: "100%", padding: "8px 12px", background: "none", border: "none", color: "#fafafa", textAlign: "left", cursor: "pointer", fontSize: 14 }} onClick={() => { setDropdownOpen(false); handleExportPDF(); }}>PDF Report</button>
-                    <button className="dropdown-item" style={{ display: "block", width: "100%", padding: "8px 12px", background: "none", border: "none", color: "#fafafa", textAlign: "left", cursor: "pointer", fontSize: 14 }} onClick={() => { setDropdownOpen(false); window.open(getDownloadUrl(sessionId, 'transcript'), '_blank'); }}>Transcript (.json)</button>
+                    <button className="dropdown-item" style={{ display: "block", width: "100%", padding: "8px 12px", background: "none", border: "none", color: "#fafafa", textAlign: "left", cursor: "pointer", fontSize: 14 }} onClick={() => { setDropdownOpen(false); void handleDownloadTranscript(); }}>Transcript (.json)</button>
                   </div>
                 )}
               </div>
