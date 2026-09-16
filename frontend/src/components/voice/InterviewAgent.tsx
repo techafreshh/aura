@@ -293,11 +293,20 @@ function InterviewInner({ sessionId, candidateName = "Candidate", onInterviewEnd
             return;
           } catch (error) {
             if (cancelled) return;
-            const isPending = axios.isAxiosError(error) && error.response?.status === 404;
-            if (!isPending || Date.now() - startedAt >= TIMEOUT_MS) {
-              setReportError(isPending
-                ? "Report generation timed out. The interview may have been too short for a meaningful report."
-                : "Connection lost. Please try again.");
+            const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+            // 404 = report not generated yet (expected while it renders);
+            // 401/403 = auth problem that retrying cannot fix; network errors
+            // and 5xx/429 are transient and worth retrying until the deadline.
+            const isPending = status === 404;
+            const isFatal = status === 401 || status === 403;
+            if (isFatal || Date.now() - startedAt >= TIMEOUT_MS) {
+              if (isPending) {
+                setReportError("Report generation timed out. The interview may have been too short for a meaningful report.");
+              } else if (isFatal) {
+                setReportError("You are not authorized to view this report.");
+              } else {
+                setReportError("Connection lost. Please try again.");
+              }
               return;
             }
             await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));

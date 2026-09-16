@@ -49,6 +49,19 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_interview_sessions_user_id'), 'interview_sessions', ['user_id'], unique=False)
     op.create_index('ix_sessions_status', 'interview_sessions', ['status'], unique=False)
+    op.create_table('oauth_identities',
+    sa.Column('id', sa.String(length=36), nullable=False),
+    sa.Column('user_id', sa.String(length=36), nullable=False),
+    sa.Column('provider', sa.String(length=20), nullable=False),
+    sa.Column('provider_id', sa.String(length=255), nullable=False),
+    sa.Column('email', sa.String(length=255), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('provider', 'provider_id', name='uq_oauth_provider_identity'),
+    sa.UniqueConstraint('user_id', 'provider', name='uq_oauth_user_provider')
+    )
+    op.create_index(op.f('ix_oauth_identities_user_id'), 'oauth_identities', ['user_id'], unique=False)
     # ### end Alembic commands ###
 
 
@@ -58,6 +71,8 @@ def downgrade() -> None:
     op.drop_index('ix_sessions_status', table_name='interview_sessions')
     op.drop_index(op.f('ix_interview_sessions_user_id'), table_name='interview_sessions')
     op.drop_table('interview_sessions')
+    op.drop_index(op.f('ix_oauth_identities_user_id'), table_name='oauth_identities')
+    op.drop_table('oauth_identities')
     op.drop_index(op.f('ix_users_email'), table_name='users')
     op.drop_table('users')
     # ### end Alembic commands ###
