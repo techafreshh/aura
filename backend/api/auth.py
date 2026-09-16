@@ -219,6 +219,14 @@ async def register(request: Request, payload: RegisterRequest, background_tasks:
         if user and user.email_verified:
             raise _duplicate_account_error(user)
 
+        if user is not None and user.provider != "email":
+            # OAuth-linked accounts — including legacy rows the migration left
+            # email_verified=False — are claimed through their provider, never by
+            # an unauthenticated email/password registration. Letting register
+            # set a password here would let an attacker pre-load one that OAuth
+            # verification later activates (account takeover).
+            raise _duplicate_account_error(user)
+
         password_hash = await run_in_threadpool(_hash_password, payload.password)
 
         if user is None:
@@ -279,7 +287,7 @@ async def login(request: Request, payload: LoginRequest):
                 403,
                 {"code": "email_not_verified", "message": "Please verify your email address before signing in."},
             )
-        if user.email == ADMIN_EMAIL and user.role != "admin":
+        if user.email.lower() == ADMIN_EMAIL and user.role != "admin":
             user.role = "admin"
         user.last_login_at = datetime.now(timezone.utc)
         await db.commit()
@@ -301,7 +309,7 @@ async def verify_email(request: Request, token: str = Query("")):
             user = found.scalar_one_or_none()
             if user:
                 expires_at = user.verification_token_expires_at
-                if expires_at is not None and _as_utc(expires_at) < datetime.now(timezone.utc):
+                if expires_at is None or _as_utc(expires_at) < datetime.now(timezone.utc):
                     status = "expired"
                 else:
                     await mark_email_verified(db, user)

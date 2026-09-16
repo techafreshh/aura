@@ -5,6 +5,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.models import User, OAuthIdentity, InterviewSession
 
 
+def _verify_via_oauth(user: User) -> None:
+    """Mark a user verified after a provider login.
+
+    OAuth proves mailbox ownership, but it does *not* prove any password that an
+    unauthenticated ``/auth/register`` may have pre-set on an unverified row.
+    Clear the password on the unverified → verified transition so a pre-set
+    password can never be activated by a later provider login (account takeover).
+    """
+    if not user.email_verified:
+        user.password_hash = None
+        user.email_verified = True
+
+
 async def upsert_oauth_user(
     db: AsyncSession,
     *,
@@ -45,7 +58,7 @@ async def upsert_oauth_user(
             if user:
                 user.name, user.avatar_url = name, avatar_url
                 user.last_login_at = datetime.now(timezone.utc)
-                user.email_verified = True
+                _verify_via_oauth(user)
                 identity.email = email
                 await db.commit()
                 await db.refresh(user)
@@ -76,7 +89,7 @@ async def upsert_oauth_user(
         else:
             user.name, user.avatar_url = name, avatar_url
             user.last_login_at = datetime.now(timezone.utc)
-            user.email_verified = True
+            _verify_via_oauth(user)
 
         db.add(OAuthIdentity(user_id=user.id, provider=provider, provider_id=provider_id, email=email))
         try:
@@ -94,16 +107,14 @@ async def upsert_oauth_user(
     if identity:
         existing_user = await get_user_by_id(db, identity.user_id)
         if existing_user:
-            if not existing_user.email_verified:
-                existing_user.email_verified = True
-                await db.commit()
+            _verify_via_oauth(existing_user)
+            await db.commit()
             return existing_user, False
     user_result = await db.execute(select(User).where(func.lower(User.email) == email))
     user = user_result.scalar_one_or_none()
     if user:
-        if not user.email_verified:
-            user.email_verified = True
-            await db.commit()
+        _verify_via_oauth(user)
+        await db.commit()
         return user, False
     if last_error is None:
         raise RuntimeError("upsert_oauth_user failed to resolve a user")

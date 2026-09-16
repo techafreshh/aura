@@ -75,7 +75,7 @@ async def send_email(to: str, subject: str, html: str) -> bool:
                 },
                 headers={"Authorization": f"Bearer {SENDBYTE_API_KEY}"},
             )
-            if resp.status_code >= 400:
+            if not 200 <= resp.status_code < 300:
                 logger.error(
                     "SendByte send failed (%s): %s", resp.status_code, resp.text[:500]
                 )

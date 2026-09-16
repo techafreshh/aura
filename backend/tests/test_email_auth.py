@@ -179,12 +179,12 @@ class TestRegister:
         assert sent_emails == []
 
     @pytest.mark.asyncio
-    async def test_register_claims_legacy_unverified_oauth_account(self, ip_headers, sent_emails):
-        """A legacy OAuth row the migration left email_verified=False must adopt
-        the submitted password so verification enables password login.
+    async def test_register_refuses_oauth_provider_account(self, ip_headers, sent_emails):
+        """An OAuth-linked account cannot be claimed by an unauthenticated
+        registration (including legacy rows the migration left unverified).
 
-        Regression: register previously issued a token but never stored the
-        password, leaving the account permanently unable to sign in with one.
+        Otherwise an attacker could pre-set a password that OAuth verification
+        later activates — account takeover.
         """
         email = _unique_email()
         async with async_session() as db:
@@ -197,19 +197,41 @@ class TestRegister:
                 json={"email": email, "password": "chosen-password-1"},
                 headers=ip_headers,
             )
-            assert resp.status_code == 200
-            assert len(sent_emails) == 1
 
-            raw_token = TOKEN_RE.search(sent_emails[0]["html"]).group(1)
-            await ac.get(f"/auth/verify-email?token={raw_token}", headers=ip_headers)
-            login = await ac.post(
+        assert resp.status_code == 409
+        assert "Google" in resp.json()["detail"]
+        assert sent_emails == []
+        assert (await _get_user(email)).password_hash is None
+
+    @pytest.mark.asyncio
+    async def test_oauth_verification_clears_preset_password(self, ip_headers):
+        """If a password was pre-set on an unverified row, a later OAuth login
+        must clear it rather than activate it (account-takeover regression)."""
+        email = _unique_email()
+        async with async_session() as db:
+            db.add(User(
+                email=email,
+                name="Victim",
+                provider="email",
+                provider_id=email,
+                password_hash=_hash_password("attacker-password-1"),
+                email_verified=False,
+            ))
+            await db.commit()
+            # Victim signs in with their provider; OAuth proves mailbox ownership.
+            await upsert_oauth_user(db, email=email, name="Victim", provider="google", provider_id="g-takeover")
+            user = await get_user_by_email(db, email)
+
+        assert user.email_verified is True
+        assert user.password_hash is None
+
+        async with _client() as ac:
+            resp = await ac.post(
                 "/auth/login",
-                json={"email": email, "password": "chosen-password-1"},
+                json={"email": email, "password": "attacker-password-1"},
                 headers=ip_headers,
             )
-
-        assert login.status_code == 200
-        assert login.json()["token"]
+        assert resp.status_code == 401
 
     @pytest.mark.asyncio
     async def test_register_rejects_short_password(self, ip_headers, sent_emails):
