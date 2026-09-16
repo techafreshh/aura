@@ -3,9 +3,14 @@ import os
 import json
 import re
 import asyncio
+import logging
+from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Optional
+
+import sqlalchemy as sa
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Query, BackgroundTasks, Depends
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -22,10 +27,12 @@ from models.schemas import UploadResponse, InterviewPlan, FinalReport, Transcrip
 from api.deps import get_current_user, require_admin
 from api.auth import router as auth_router
 from db.crud import create_session, get_session, get_user_by_id, update_session_report, update_session_transcript, list_user_sessions, list_all_sessions
-from db.database import async_session
+from db.database import async_session, init_db
 from utils.config import ENVIRONMENT, OAUTH_SESSION_SECRET
 
 import sentry_sdk
+
+logger = logging.getLogger(__name__)
 
 sentry_sdk.init(
     dsn=os.getenv("SENTRY_DSN"),
@@ -38,7 +45,79 @@ limiter = Limiter(
     storage_uri=os.getenv("REDIS_URL"),
     in_memory_fallback_enabled=True,
 )
-app = FastAPI(title="AI Interviewer API")
+def _run_migrations() -> None:
+    """Bring the SQLite schema up to date with Alembic migrations.
+
+    Auto-heals databases created by the earlier ``create_all``-only deploys:
+    if the schema exists but has no ``alembic_version`` table, it is validated
+    against the current models and then stamped at head instead of migrated.
+    A schema that is missing tables or columns is *not* stamped — startup
+    fails loudly instead of 500ing later with an opaque ``no such column``.
+    Runs synchronously — invoke via ``asyncio.to_thread`` so the event loop
+    isn't blocked.
+    """
+    import sqlite3
+
+    from alembic import command
+    from alembic.config import Config
+
+    from db.database import DB_PATH, _find_missing_columns
+    from db import models  # noqa: F401  (ensures all tables are registered on Base.metadata)
+
+    if DB_PATH == ":memory:":
+        # An in-memory SQLite DB lives inside a single connection; it starts
+        # empty and the app's create_all safety net (init_db) builds it, so
+        # there is nothing to migrate or stamp here.
+        return
+
+    backend_root = Path(__file__).resolve().parent.parent
+    alembic_cfg = Config(str(backend_root / "alembic.ini"))
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        try:
+            tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        finally:
+            conn.close()
+
+        if "alembic_version" in tables:
+            command.upgrade(alembic_cfg, "head")
+        elif "users" in tables:
+            # Pre-Alembic create_all-era DB: validate the live schema against
+            # the current models before stamping, otherwise a drifted legacy
+            # DB is recorded as "current" and fails later at request time.
+            sync_engine = sa.create_engine(f"sqlite:///{DB_PATH}")
+            try:
+                with sync_engine.connect() as engine_conn:
+                    missing = _find_missing_columns(engine_conn)
+            finally:
+                sync_engine.dispose()
+            if missing:
+                details = "; ".join(f"{table}: {', '.join(cols)}" for table, cols in missing.items())
+                raise RuntimeError(
+                    f"Pre-Alembic database schema is missing expected tables/columns: {details}. "
+                    "Not stamping it as up to date. For dev, delete the database file and restart "
+                    "to recreate the schema; for prod, restore a compatible backup or migrate manually."
+                )
+            command.stamp(alembic_cfg, "head")
+        else:
+            command.upgrade(alembic_cfg, "head")
+    except Exception as exc:
+        logger.error(f"Database migration failed for {DB_PATH}: {exc}")
+        raise RuntimeError(f"Database startup migrations failed: {exc}") from exc
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await asyncio.to_thread(_run_migrations)
+    # Safety net behind the Alembic migrations: create_all is a no-op on a
+    # fully migrated schema; it also backfills OAuth identities for users
+    # created before multi-provider login and runs the dev-only drift guard.
+    await init_db()
+    yield
+
+
+app = FastAPI(title="AI Interviewer API", lifespan=lifespan)
 setup_langfuse()
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -73,16 +152,6 @@ app.add_middleware(
 )
 
 MAX_PDF_SIZE = 10 * 1024 * 1024  # 10 MB
-
-_sse_connections: dict[str, int] = {}
-_sse_locks: dict[str, asyncio.Lock] = {}
-MAX_SSE_PER_SESSION = 3
-
-
-@app.on_event("startup")
-async def startup():
-    from db.database import init_db
-    await init_db()
 
 
 def sanitize_name(name: str) -> str:
@@ -458,48 +527,3 @@ async def admin_get_session_report(request: Request, session_id: str, user=Depen
         return FinalReport.model_validate_json(data.decode())
 
     raise HTTPException(status_code=404, detail="Report not found")
-
-
-@app.get("/report-stream/{session_id}")
-@limiter.limit("10/hour")
-async def report_stream(request: Request, session_id: str, user=Depends(get_current_user)):
-    async with async_session() as db:
-        session = await get_session(db, session_id)
-
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    if user.role != "admin" and session.user_id != user.id:
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    lock = _sse_locks.setdefault(session_id, asyncio.Lock())
-
-    async with lock:
-        current = _sse_connections.get(session_id, 0)
-        if current >= MAX_SSE_PER_SESSION:
-            raise HTTPException(status_code=429, detail="Too many connections for this session")
-        _sse_connections[session_id] = current + 1
-
-    async def event_generator():
-        try:
-            for _ in range(120):
-                if await request.is_disconnected():
-                    return
-                async with async_session() as db:
-                    session = await get_session(db, session_id)
-                if session and session.report_json:
-                    report = FinalReport.model_validate_json(session.report_json)
-                    yield f"data: {json.dumps(report.model_dump())}\n\n"
-                    return
-                await asyncio.sleep(1)
-            yield f"data: {json.dumps({'error': 'timeout'})}\n\n"
-        finally:
-            async with _sse_locks.get(session_id, asyncio.Lock()):
-                new_count = max(0, _sse_connections.get(session_id, 1) - 1)
-                if new_count == 0:
-                    _sse_connections.pop(session_id, None)
-                    _sse_locks.pop(session_id, None)
-                else:
-                    _sse_connections[session_id] = new_count
-
-    return StreamingResponse(event_generator(), media_type="text/event-stream")

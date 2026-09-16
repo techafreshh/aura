@@ -14,6 +14,10 @@ COPY models/ models/
 COPY utils/ utils/
 COPY __init__.py .
 
+# Alembic migrations run automatically at app startup (api.main lifespan)
+COPY alembic.ini ./
+COPY migrations/ migrations/
+
 EXPOSE 8000
 
 # The app sits behind a proxy chain (Caddy -> frontend nginx) that strips an
