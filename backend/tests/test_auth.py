@@ -3,8 +3,8 @@ import api.main as main_module
 from httpx import AsyncClient, ASGITransport
 from api.auth import _make_jwt
 from db.database import async_session
-from db.crud import upsert_oauth_user, get_user_by_id, create_session, get_session
-from db.models import OAuthIdentity
+from db.crud import upsert_oauth_user, get_user_by_id, get_user_by_email, create_session, get_session
+from db.models import OAuthIdentity, User
 from sqlalchemy import select
 
 
@@ -113,6 +113,15 @@ class TestCRUD:
         async with async_session() as db:
             found = await get_user_by_id(db, "nonexistent-id")
             assert found is None
+
+    @pytest.mark.asyncio
+    async def test_get_user_by_email_is_case_insensitive(self):
+        async with async_session() as db:
+            db.add(User(email="Mixed.Case@Example.com", name="Mixed", provider="google", provider_id="mix-1"))
+            await db.commit()
+            found = await get_user_by_email(db, "mixed.case@example.com")
+        assert found is not None
+        assert found.email == "Mixed.Case@Example.com"
 
     @pytest.mark.asyncio
     async def test_create_and_get_session(self):

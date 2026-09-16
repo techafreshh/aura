@@ -92,6 +92,7 @@ async def send_email(to: str, subject: str, html: str) -> bool:
 
 def _base_html(preheader: str, body: str, cta_href: str, cta_text: str, footnote: str) -> str:
     esc = html_escape_module.escape
+    esc_href = html_escape_module.escape(cta_href, quote=True)
     return f"""\
 <!DOCTYPE html>
 <html lang="en">
@@ -103,7 +104,7 @@ def _base_html(preheader: str, body: str, cta_href: str, cta_text: str, footnote
         <tr><td style="font-size:14px;color:#6b7280;padding-bottom:24px;">AI Interviewer</td></tr>
         <tr><td style="font-size:22px;font-weight:700;color:#111827;padding-bottom:12px;">{esc(preheader)}</td></tr>
         <tr><td style="font-size:15px;line-height:1.6;color:#374151;padding-bottom:28px;">{body}</td></tr>
-        <tr><td align="center" style="padding-bottom:28px;">{f'<a href="{cta_href}" style="display:inline-block;background-color:{_BRAND_COLOR};color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 32px;border-radius:8px;">{esc(cta_text)}</a>' if cta_text else ''}</td></tr>
+        <tr><td align="center" style="padding-bottom:28px;">{f'<a href="{esc_href}" style="display:inline-block;background-color:{_BRAND_COLOR};color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 32px;border-radius:8px;">{esc(cta_text)}</a>' if cta_text else ''}</td></tr>
         <tr><td style="font-size:13px;line-height:1.5;color:#9ca3af;padding-bottom:8px;">{footnote}</td></tr>
         <tr><td style="font-size:12px;color:#d1d5db;border-top:1px solid #f3f4f6;padding-top:16px;">You are receiving this email because an Aura account was created with this address. If this wasn't you, you can safely ignore it.</td></tr>
       </table>

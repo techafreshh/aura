@@ -194,6 +194,16 @@ async def logout():
     return {"status": "ok"}
 
 
+def _duplicate_account_error(user: User | None) -> HTTPException:
+    """409 for an already-registered email, hinting at provider-only accounts."""
+    if user is not None and not user.password_hash:
+        return HTTPException(
+            409,
+            "This email is registered with Google/GitHub. Sign in with that provider instead.",
+        )
+    return HTTPException(409, "An account with this email already exists.")
+
+
 @router.post("/register")
 @limiter.limit("5/hour")
 async def register(request: Request, payload: RegisterRequest, background_tasks: BackgroundTasks):
@@ -205,9 +215,14 @@ async def register(request: Request, payload: RegisterRequest, background_tasks:
 
     async with async_session() as db:
         user = await get_user_by_email(db, email)
-        if not user:
-            password_hash = await run_in_threadpool(_hash_password, payload.password)
-            new_user = User(
+
+        if user and user.email_verified:
+            raise _duplicate_account_error(user)
+
+        password_hash = await run_in_threadpool(_hash_password, payload.password)
+
+        if user is None:
+            user = User(
                 email=email,
                 name=name or email.split("@")[0],
                 provider="email",
@@ -216,29 +231,30 @@ async def register(request: Request, payload: RegisterRequest, background_tasks:
                 email_verified=False,
             )
             if email == ADMIN_EMAIL:
-                new_user.role = "admin"
-            db.add(new_user)
+                user.role = "admin"
+            db.add(user)
             try:
                 await db.commit()
-                await db.refresh(new_user)
-                user = new_user
+                await db.refresh(user)
             except IntegrityError:
-                # A concurrent registration for the same email won the insert;
-                # fall through to the duplicate handling below instead of 500ing.
+                # A concurrent registration for the same email won the insert.
+                # Resolve the winner and treat it as an existing account.
                 await db.rollback()
                 user = await get_user_by_email(db, email)
-                if user is None:
-                    raise HTTPException(409, "An account with this email already exists.")
+                if user is None or user.email_verified:
+                    raise _duplicate_account_error(user)
+                user.password_hash = password_hash
+                await db.commit()
+                await db.refresh(user)
+        else:
+            # Existing account that is not verified: a legacy OAuth row the
+            # migration left email_verified=False, or an abandoned email signup.
+            # Store the submitted password so completing verification actually
+            # enables password login instead of leaving password_hash unset.
+            user.password_hash = password_hash
+            await db.commit()
+            await db.refresh(user)
 
-        if user.email_verified:
-            if not user.password_hash:
-                raise HTTPException(
-                    409,
-                    "This email is registered with Google/GitHub. Sign in with that provider instead.",
-                )
-            raise HTTPException(409, "An account with this email already exists.")
-
-        # New or previously unverified account: issue a fresh token.
         raw_token = _new_token()
         await store_verification_token(
             db, user, _hash_token(raw_token), datetime.now(timezone.utc) + VERIFICATION_TOKEN_TTL

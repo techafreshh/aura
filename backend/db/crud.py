@@ -116,7 +116,14 @@ async def get_user_by_id(db: AsyncSession, user_id: str) -> User | None:
 
 
 async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
-    result = await db.execute(select(User).where(User.email == email))
+    """Look up a user by email, case-insensitively.
+
+    Matches ``upsert_oauth_user``'s linking behaviour so legacy rows stored
+    with mixed-case emails are visible to the email/password routes too (and a
+    lowercase registration can't insert a duplicate alongside them).
+    """
+    normalized = email.strip().lower()
+    result = await db.execute(select(User).where(func.lower(User.email) == normalized))
     return result.scalar_one_or_none()
 
 

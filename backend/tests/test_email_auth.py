@@ -179,6 +179,39 @@ class TestRegister:
         assert sent_emails == []
 
     @pytest.mark.asyncio
+    async def test_register_claims_legacy_unverified_oauth_account(self, ip_headers, sent_emails):
+        """A legacy OAuth row the migration left email_verified=False must adopt
+        the submitted password so verification enables password login.
+
+        Regression: register previously issued a token but never stored the
+        password, leaving the account permanently unable to sign in with one.
+        """
+        email = _unique_email()
+        async with async_session() as db:
+            db.add(User(email=email, name="Legacy OAuth", provider="google", provider_id="legacy-oauth"))
+            await db.commit()
+
+        async with _client() as ac:
+            resp = await ac.post(
+                "/auth/register",
+                json={"email": email, "password": "chosen-password-1"},
+                headers=ip_headers,
+            )
+            assert resp.status_code == 200
+            assert len(sent_emails) == 1
+
+            raw_token = TOKEN_RE.search(sent_emails[0]["html"]).group(1)
+            await ac.get(f"/auth/verify-email?token={raw_token}", headers=ip_headers)
+            login = await ac.post(
+                "/auth/login",
+                json={"email": email, "password": "chosen-password-1"},
+                headers=ip_headers,
+            )
+
+        assert login.status_code == 200
+        assert login.json()["token"]
+
+    @pytest.mark.asyncio
     async def test_register_rejects_short_password(self, ip_headers, sent_emails):
         async with _client() as ac:
             resp = await ac.post(
