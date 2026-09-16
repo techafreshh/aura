@@ -84,7 +84,7 @@ export function Landing() {
   }
 
   const orbStatus = ORB_STATES[orbIdx]
-  const { user, login, logout } = useAuth()
+  const { user, logout } = useAuth()
 
   return (
     <div className="aura-landing-page" ref={pageRef}>
@@ -117,14 +117,9 @@ export function Landing() {
                 </button>
               </>
             ) : (
-              <>
-                <button className="btn btn-sm btn-ghost" onClick={() => login('google')}>
-                  Sign in with Google
-                </button>
-                <button className="btn btn-sm btn-primary" onClick={() => login('github')} style={{ marginLeft: 8 }}>
-                  Sign in with GitHub
-                </button>
-              </>
+              <Link to="/login" className="btn btn-sm btn-primary">
+                Sign in
+              </Link>
             )}
           </div>
         </div>
@@ -145,14 +140,12 @@ export function Landing() {
                   </svg>
                 </Link>
               ) : (
-                <>
-                  <button className="btn btn-lg btn-primary" onClick={() => login('google')}>
-                    Sign in with Google
-                  </button>
-                  <button className="btn btn-lg btn-ghost" onClick={() => login('github')} style={{ marginLeft: 12 }}>
-                    Sign in with GitHub
-                  </button>
-                </>
+                <Link to="/login" className="btn btn-lg btn-primary">
+                  Sign in to get started
+                  <svg className="arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M3 8h10m-4-4 4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </Link>
               )}
               <a
                 href="https://github.com/techafreshh/aura"
@@ -408,14 +401,12 @@ export function Landing() {
                 </svg>
               </Link>
             ) : (
-              <>
-                <button className="btn btn-lg btn-primary" onClick={() => login('google')}>
-                  Sign in with Google
-                </button>
-                <button className="btn btn-lg btn-ghost" onClick={() => login('github')} style={{ marginLeft: 12 }}>
-                  Sign in with GitHub
-                </button>
-              </>
+              <Link to="/login" className="btn btn-lg btn-primary">
+                Sign in to get started
+                <svg className="arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M3 8h10m-4-4 4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </Link>
             )}
           </div>
         </div>

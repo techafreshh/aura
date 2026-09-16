@@ -4,7 +4,7 @@ from api.main import app
 from api.deps import get_current_user
 from models.schemas import InterviewPlan, FinalReport, SectionGrade
 from db.database import async_session
-from db.crud import create_session, update_session_report, upsert_user
+from db.crud import create_session, update_session_report, upsert_oauth_user
 from db.models import User
 
 
@@ -78,7 +78,7 @@ def auth_as_candidate():
 async def _seed_other_user_with_session(other_email: str = "other-candidate@example.com", name: str = "Other Candidate"):
     """Create a separate user with one session for cross-user access tests."""
     async with async_session() as db:
-        user = await upsert_user(
+        user, _created = await upsert_oauth_user(
             db,
             email=other_email,
             name=name,

@@ -3,6 +3,10 @@ import { AuthProvider } from './contexts/AuthContext'
 import { Landing } from './pages/Landing'
 import { InterviewFlow } from './pages/InterviewFlow'
 import { AuthCallback } from './pages/AuthCallback'
+import { LoginPage } from './pages/LoginPage'
+import { EmailVerified } from './pages/EmailVerified'
+import { ForgotPassword } from './pages/ForgotPassword'
+import { ResetPassword } from './pages/ResetPassword'
 import { MyInterviews } from './pages/MyInterviews'
 import { AdminDashboard } from './pages/AdminDashboard'
 import { SessionDetail } from './pages/SessionDetail'
@@ -15,6 +19,10 @@ function App() {
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/auth/verified" element={<EmailVerified />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/interview" element={<ProtectedRoute><InterviewFlow /></ProtectedRoute>} />
         <Route path="/my-interviews" element={<ProtectedRoute><MyInterviews /></ProtectedRoute>} />
         <Route path="/my-interviews/:sessionId" element={<ProtectedRoute><CandidateSessionReport /></ProtectedRoute>} />

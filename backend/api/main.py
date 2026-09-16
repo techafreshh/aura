@@ -13,9 +13,8 @@ from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Query, Ba
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 from livekit.api import AccessToken, VideoGrants
 from langfuse import propagate_attributes
 from agent.parser import agent
@@ -25,6 +24,7 @@ from utils.pdf_report import generate_report_pdf
 from utils.tracing import setup_langfuse
 from models.schemas import UploadResponse, InterviewPlan, FinalReport, TranscriptPayload, SessionSummary, AdminSessionDetail
 from api.deps import get_current_user, require_admin
+from api.rate_limit import limiter
 from api.auth import router as auth_router
 from db.crud import create_session, get_session, get_user_by_id, update_session_report, update_session_transcript, list_user_sessions, list_all_sessions
 from db.database import async_session, init_db
@@ -40,11 +40,6 @@ sentry_sdk.init(
     environment=ENVIRONMENT,
 )
 
-limiter = Limiter(
-    key_func=lambda request: request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or get_remote_address(request),
-    storage_uri=os.getenv("REDIS_URL"),
-    in_memory_fallback_enabled=True,
-)
 def _run_migrations() -> None:
     """Bring the SQLite schema up to date with Alembic migrations.
 
@@ -61,7 +56,7 @@ def _run_migrations() -> None:
     from alembic import command
     from alembic.config import Config
 
-    from db.database import DB_PATH, _find_missing_columns
+    from db.database import DB_PATH, _find_missing_columns, _add_missing_user_columns_sqlite
     from db import models  # noqa: F401  (ensures all tables are registered on Base.metadata)
 
     if DB_PATH == ":memory:":
@@ -83,9 +78,19 @@ def _run_migrations() -> None:
         if "alembic_version" in tables:
             command.upgrade(alembic_cfg, "head")
         elif "users" in tables:
-            # Pre-Alembic create_all-era DB: validate the live schema against
-            # the current models before stamping, otherwise a drifted legacy
-            # DB is recorded as "current" and fails later at request time.
+            # Pre-Alembic create_all-era DB: bring post-release ``users``
+            # columns up to the current model first, then validate the live
+            # schema before stamping. Without the ALTER, the new email-auth
+            # columns read as drift and the stamp is refused; without the
+            # validation, a genuinely drifted legacy DB would be recorded as
+            # "current" and fail later at request time.
+            conn = sqlite3.connect(DB_PATH)
+            try:
+                _add_missing_user_columns_sqlite(conn)
+                conn.commit()
+            finally:
+                conn.close()
+
             sync_engine = sa.create_engine(f"sqlite:///{DB_PATH}")
             try:
                 with sync_engine.connect() as engine_conn:

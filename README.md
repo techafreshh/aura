@@ -104,6 +104,9 @@ The app is served on `127.0.0.1:3000`. Point a reverse proxy (Caddy/nginx) with 
 | `LANGFUSE_PUBLIC_KEY` | Langfuse project public key (optional) |
 | `LANGFUSE_SECRET_KEY` | Langfuse project secret key (optional) |
 | `LANGFUSE_BASE_URL` | Langfuse instance URL (optional) |
+| `SENDBYTE_API_KEY` | SendByte API key (`sk_test_…`/`sk_live_…`) for verification, welcome, and password-reset emails (optional — email flows disabled if unset) |
+| `SENDBYTE_FROM_EMAIL` | Verified sender address, e.g. `Aura <no-reply@yourdomain.com>` |
+| `PUBLIC_API_URL` | Public base URL of the API for email links; defaults to `{FRONTEND_URL}/api` in production (optional) |
 
 ## API Endpoints
 
@@ -118,6 +121,12 @@ The app is served on `127.0.0.1:3000`. Point a reverse proxy (Caddy/nginx) with 
 | `GET` | `/admin/sessions` | List all sessions (admin only, supports `?status=` filter) |
 | `GET` | `/admin/sessions/{session_id}/detail` | Full session detail with transcript (admin only) |
 | `GET` | `/admin/sessions/{session_id}/report` | Session report (admin only) |
+| `POST` | `/auth/register` | Create account with email + password (sends verification email) |
+| `POST` | `/auth/login` | Sign in with email + password (blocked until email is verified) |
+| `GET` | `/auth/verify-email?token=` | Verify an email address (link clicked from email) |
+| `POST` | `/auth/resend-verification` | Re-send the verification email |
+| `POST` | `/auth/forgot-password` | Send a password-reset link (via SendByte) |
+| `POST` | `/auth/reset-password` | Set a new password with a reset token |
 | `GET` | `/health` | Health check |
 
 ## Testing

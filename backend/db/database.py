@@ -1,8 +1,8 @@
 import logging
 import os
 from pathlib import Path
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import StaticPool
 
@@ -47,10 +47,51 @@ def _find_missing_columns(sync_conn) -> dict[str, list[str]]:
     return missing
 
 
+# Columns added to ``users`` after the original release, as
+# (column name, column DDL) pairs. Kept in sync with db.models.User and with
+# the ``add_email_password_auth_columns`` Alembic migration. New databases get
+# them through Alembic; pre-Alembic databases get them via ALTER TABLE in
+# ``init_db`` (and in the startup auto-heal before stamping).
+_USER_COLUMNS_ADDED = [
+    ("password_hash", "VARCHAR(255)"),
+    ("email_verified", "BOOLEAN DEFAULT 0 NOT NULL"),
+    ("verification_token_hash", "VARCHAR(64)"),
+    ("verification_token_expires_at", "DATETIME"),
+    ("reset_token_hash", "VARCHAR(64)"),
+    ("reset_token_expires_at", "DATETIME"),
+]
+
+
+def _missing_user_columns(existing: set[str]) -> list[tuple[str, str]]:
+    return [(name, ddl) for name, ddl in _USER_COLUMNS_ADDED if name not in existing]
+
+
+async def _add_missing_user_columns(conn) -> None:
+    result = await conn.execute(text("PRAGMA table_info(users)"))
+    existing = {row[1] for row in result.fetchall()}
+    for column_name, column_ddl in _missing_user_columns(existing):
+        await conn.execute(text(f"ALTER TABLE users ADD COLUMN {column_name} {column_ddl}"))
+
+
+def _add_missing_user_columns_sqlite(conn) -> None:
+    """Sync variant used by the pre-Alembic auto-heal in ``api.main``.
+
+    Raw ``sqlite3`` connection; callers commit. Brings a legacy ``users`` table
+    up to the current model so the stamp-time drift check passes instead of
+    rejecting the database.
+    """
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
+    for column_name, column_ddl in _missing_user_columns(existing):
+        conn.execute(f"ALTER TABLE users ADD COLUMN {column_name} {column_ddl}")
+
+
 async def init_db() -> dict[str, list[str]]:
     async with engine.begin() as conn:
         from db.models import User, OAuthIdentity, InterviewSession  # noqa: F401
         await conn.run_sync(Base.metadata.create_all)
+        # Safety net for databases predating the ALTER-based migrations, and
+        # for tests that exercise init_db directly without running Alembic.
+        await _add_missing_user_columns(conn)
         # Backfill identities for databases created before multi-provider login.
         await conn.execute(text("""
             INSERT OR IGNORE INTO oauth_identities

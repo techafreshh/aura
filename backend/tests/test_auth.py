@@ -3,8 +3,8 @@ import api.main as main_module
 from httpx import AsyncClient, ASGITransport
 from api.auth import _make_jwt
 from db.database import async_session
-from db.crud import upsert_user, upsert_oauth_user, get_user_by_id, create_session, get_session
-from db.models import OAuthIdentity
+from db.crud import upsert_oauth_user, get_user_by_id, get_user_by_email, create_session, get_session
+from db.models import OAuthIdentity, User
 from sqlalchemy import select
 
 
@@ -57,44 +57,47 @@ class TestJWT:
 
 class TestCRUD:
     @pytest.mark.asyncio
-    async def test_upsert_user_creates_new(self):
+    async def test_upsert_oauth_user_creates_new(self):
         async with async_session() as db:
-            user = await upsert_user(
+            user, created = await upsert_oauth_user(
                 db,
                 email="crud-test@example.com",
                 name="CRUD Test",
                 provider="google",
                 provider_id="12345",
             )
+            assert created is True
             assert user.email == "crud-test@example.com"
             assert user.name == "CRUD Test"
             assert user.role == "candidate"
             assert user.id is not None
 
     @pytest.mark.asyncio
-    async def test_upsert_user_updates_existing(self):
+    async def test_upsert_oauth_user_updates_existing(self):
         async with async_session() as db:
-            user1 = await upsert_user(
+            user1, created1 = await upsert_oauth_user(
                 db,
                 email="update-test@example.com",
                 name="Original",
                 provider="google",
                 provider_id="111",
             )
-            user2 = await upsert_user(
+            user2, created2 = await upsert_oauth_user(
                 db,
                 email="update-test@example.com",
                 name="Updated",
                 provider="google",
                 provider_id="111",
             )
+            assert created1 is True
+            assert created2 is False
             assert user1.id == user2.id
             assert user2.name == "Updated"
 
     @pytest.mark.asyncio
     async def test_get_user_by_id(self):
         async with async_session() as db:
-            user = await upsert_user(
+            user, _ = await upsert_oauth_user(
                 db,
                 email="get-test@example.com",
                 name="Get Test",
@@ -112,9 +115,18 @@ class TestCRUD:
             assert found is None
 
     @pytest.mark.asyncio
+    async def test_get_user_by_email_is_case_insensitive(self):
+        async with async_session() as db:
+            db.add(User(email="Mixed.Case@Example.com", name="Mixed", provider="google", provider_id="mix-1"))
+            await db.commit()
+            found = await get_user_by_email(db, "mixed.case@example.com")
+        assert found is not None
+        assert found.email == "Mixed.Case@Example.com"
+
+    @pytest.mark.asyncio
     async def test_create_and_get_session(self):
         async with async_session() as db:
-            user = await upsert_user(
+            user, _ = await upsert_oauth_user(
                 db,
                 email="session-test@example.com",
                 name="Session Test",
@@ -137,10 +149,10 @@ class TestCRUD:
     @pytest.mark.asyncio
     async def test_oauth_providers_with_same_verified_email_link_to_one_user(self):
         async with async_session() as db:
-            google_user = await upsert_oauth_user(
+            google_user, _ = await upsert_oauth_user(
                 db, email="linked@example.com", name="Linked", provider="google", provider_id="google-1"
             )
-            github_user = await upsert_oauth_user(
+            github_user, _ = await upsert_oauth_user(
                 db, email="linked@example.com", name="Linked", provider="github", provider_id="github-1"
             )
             identities = await db.execute(
@@ -156,10 +168,10 @@ class TestCRUD:
     @pytest.mark.asyncio
     async def test_oauth_linking_matches_legacy_email_case_insensitively(self):
         async with async_session() as db:
-            legacy = await upsert_user(
+            legacy, _ = await upsert_oauth_user(
                 db, email="Legacy.Case@Example.com", name="Legacy", provider="google", provider_id="legacy-google"
             )
-            linked = await upsert_oauth_user(
+            linked, _ = await upsert_oauth_user(
                 db, email="legacy.case@example.com", name="Legacy", provider="github", provider_id="legacy-github"
             )
         assert linked.id == legacy.id
