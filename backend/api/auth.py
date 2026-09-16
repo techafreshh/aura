@@ -13,6 +13,8 @@ from fastapi.responses import RedirectResponse
 from authlib.integrations.starlette_client import OAuth
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from starlette.concurrency import run_in_threadpool
 
 from db.crud import (
     upsert_oauth_user,
@@ -203,37 +205,44 @@ async def register(request: Request, payload: RegisterRequest, background_tasks:
 
     async with async_session() as db:
         user = await get_user_by_email(db, email)
-        if user:
-            if user.email_verified:
-                if not user.password_hash:
-                    raise HTTPException(
-                        409,
-                        "This email is registered with Google/GitHub. Sign in with that provider instead.",
-                    )
-                raise HTTPException(409, "An account with this email already exists.")
-            # Unverified account: re-issue a token and resend the email.
-            raw_token = _new_token()
-            await store_verification_token(
-                db, user, _hash_token(raw_token), datetime.now(timezone.utc) + VERIFICATION_TOKEN_TTL
-            )
-        else:
-            user = User(
+        if not user:
+            password_hash = await run_in_threadpool(_hash_password, payload.password)
+            new_user = User(
                 email=email,
                 name=name or email.split("@")[0],
                 provider="email",
                 provider_id=email,
-                password_hash=_hash_password(payload.password),
+                password_hash=password_hash,
                 email_verified=False,
             )
             if email == ADMIN_EMAIL:
-                user.role = "admin"
-            db.add(user)
-            await db.commit()
-            await db.refresh(user)
-            raw_token = _new_token()
-            await store_verification_token(
-                db, user, _hash_token(raw_token), datetime.now(timezone.utc) + VERIFICATION_TOKEN_TTL
-            )
+                new_user.role = "admin"
+            db.add(new_user)
+            try:
+                await db.commit()
+                await db.refresh(new_user)
+                user = new_user
+            except IntegrityError:
+                # A concurrent registration for the same email won the insert;
+                # fall through to the duplicate handling below instead of 500ing.
+                await db.rollback()
+                user = await get_user_by_email(db, email)
+                if user is None:
+                    raise HTTPException(409, "An account with this email already exists.")
+
+        if user.email_verified:
+            if not user.password_hash:
+                raise HTTPException(
+                    409,
+                    "This email is registered with Google/GitHub. Sign in with that provider instead.",
+                )
+            raise HTTPException(409, "An account with this email already exists.")
+
+        # New or previously unverified account: issue a fresh token.
+        raw_token = _new_token()
+        await store_verification_token(
+            db, user, _hash_token(raw_token), datetime.now(timezone.utc) + VERIFICATION_TOKEN_TTL
+        )
 
     verify_url = f"{PUBLIC_API_URL}/auth/verify-email?token={raw_token}"
     background_tasks.add_task(_send_verification, user.email, user.name, verify_url)
@@ -247,7 +256,7 @@ async def login(request: Request, payload: LoginRequest):
 
     async with async_session() as db:
         user = await get_user_by_email(db, email)
-        if not user or not _check_password(payload.password, user.password_hash):
+        if not user or not await run_in_threadpool(_check_password, payload.password, user.password_hash):
             raise HTTPException(401, "Invalid email or password.")
         if not user.email_verified:
             raise HTTPException(
@@ -335,7 +344,8 @@ async def reset_password(request: Request, payload: ResetPasswordRequest):
         expires_at = user.reset_token_expires_at if user else None
         if not user or expires_at is None or _as_utc(expires_at) < datetime.now(timezone.utc):
             raise HTTPException(400, "This reset link is invalid or has expired. Please request a new one.")
-        await set_user_password(db, user, _hash_password(payload.new_password))
+        new_password_hash = await run_in_threadpool(_hash_password, payload.new_password)
+        await set_user_password(db, user, new_password_hash)
 
     return {"message": "Password updated. You can now sign in."}
 

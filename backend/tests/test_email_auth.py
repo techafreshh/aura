@@ -9,12 +9,14 @@ import itertools
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 import pytest
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy import text
 
 import api.main as main_module
+from api import auth as auth_module
 from api.auth import _hash_token, _hash_password, _new_token
 from db.crud import get_user_by_email, store_verification_token, upsert_oauth_user
 from db.database import async_session, _add_missing_user_columns
@@ -144,6 +146,37 @@ class TestRegister:
         assert user.email_verified is False
         # A fresh token replaced the old one
         assert user.verification_token_hash == _hash_token(TOKEN_RE.search(sent_emails[0]["html"]).group(1))
+
+    @pytest.mark.asyncio
+    async def test_register_concurrent_duplicate_does_not_500(self, ip_headers, sent_emails):
+        """Losing the insert race must resolve to 409, not a 500.
+
+        The pre-check is forced to miss the existing row (as it would for a
+        concurrent registration), so the INSERT hits the unique constraint and
+        the handler has to fall back to duplicate handling.
+        """
+        email = _unique_email()
+        await _create_password_user(email, verified=True)
+
+        real_get = auth_module.get_user_by_email
+        calls = {"n": 0}
+
+        async def _miss_once(db, value):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return None
+            return await real_get(db, value)
+
+        with patch.object(auth_module, "get_user_by_email", side_effect=_miss_once):
+            async with _client() as ac:
+                resp = await ac.post(
+                    "/auth/register",
+                    json={"email": email, "password": "super-secret-1"},
+                    headers=ip_headers,
+                )
+
+        assert resp.status_code == 409
+        assert sent_emails == []
 
     @pytest.mark.asyncio
     async def test_register_rejects_short_password(self, ip_headers, sent_emails):
