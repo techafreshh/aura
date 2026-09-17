@@ -2,11 +2,18 @@ from pydantic_ai import Agent
 from models.schemas import EvaluationResult
 from dotenv import load_dotenv
 
+# backend/.env must be loaded before utils.config resolves model constants at
+# import time. Local `uv run` processes depend on it; Docker/compose and test
+# envs are set before process start and win either way (load_dotenv never
+# overrides existing vars).
 load_dotenv()
 
-# Define the Answer Evaluator Agent
+from utils.config import EVALUATOR_MODEL  # noqa: E402  (must follow load_dotenv)
+
+# Define the Answer Evaluator Agent. Model selectable via EVALUATOR_MODEL /
+# REASONING_MODEL (see utils/config.py).
 evaluator_agent = Agent(
-    'openrouter:google/gemini-2.0-flash-001',
+    EVALUATOR_MODEL,
     output_type=EvaluationResult,
     system_prompt=(
         "You are an expert technical interviewer evaluating a candidate's answer. "

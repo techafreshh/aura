@@ -146,3 +146,43 @@ def get_recruiter_monthly_limit() -> int:
 
 
 RECRUITER_MONTHLY_LIMIT: int = get_recruiter_monthly_limit()
+
+
+# --- AI model configuration -------------------------------------------------
+#
+# Every model the application talks to is selectable via env, so cost/quality
+# tradeoffs can be changed without touching code. Pydantic AI agents use the
+# provider-prefixed format (``openrouter:<model>``); LiveKit Inference models
+# use ``<provider>/<model>`` (e.g. ``deepgram/nova-3``).
+
+_DEFAULT_REASONING_MODEL = "openrouter:google/gemini-2.0-flash-001"
+_DEFAULT_VOICE_LLM_MODEL = "openai/gpt-4o-mini"
+
+
+def get_reasoning_model(agent: str) -> str:
+    """Resolve the model string for a Pydantic AI reasoning agent.
+
+    The per-agent var (``PARSER_MODEL`` / ``EVALUATOR_MODEL`` /
+    ``REPORTER_MODEL``) wins over the shared ``REASONING_MODEL``, which falls
+    back to the built-in default. Empty or whitespace-only values count as
+    unset so a commented-out line in .env degrades gracefully. The string is
+    not validated here — an unsupported provider prefix fails loudly when the
+    agent is constructed, i.e. at process boot.
+    """
+    per_agent = os.getenv(f"{agent.upper()}_MODEL", "").strip()
+    if per_agent:
+        return per_agent
+    return os.getenv("REASONING_MODEL", "").strip() or _DEFAULT_REASONING_MODEL
+
+
+def get_voice_llm_model() -> str:
+    """Resolve the voice-pipeline LLM used by the LiveKit AgentSession."""
+    return os.getenv("LIVEKIT_LLM_MODEL", "").strip() or _DEFAULT_VOICE_LLM_MODEL
+
+
+# Eagerly resolved at import so a malformed model name crashes the process at
+# boot (Agent construction) rather than mid-interview.
+PARSER_MODEL: str = get_reasoning_model("parser")
+EVALUATOR_MODEL: str = get_reasoning_model("evaluator")
+REPORTER_MODEL: str = get_reasoning_model("reporter")
+LIVEKIT_LLM_MODEL: str = get_voice_llm_model()

@@ -2,11 +2,18 @@ from pydantic_ai import Agent
 from models.schemas import InterviewPlan
 from dotenv import load_dotenv
 
+# backend/.env must be loaded before utils.config resolves model constants at
+# import time. Local `uv run` processes depend on it; Docker/compose and test
+# envs are set before process start and win either way (load_dotenv never
+# overrides existing vars).
 load_dotenv()
 
-# Define the Resume Parser Agent using the simplified OpenRouter string format
+from utils.config import PARSER_MODEL  # noqa: E402  (must follow load_dotenv)
+
+# Define the Resume Parser Agent. Model selectable via PARSER_MODEL /
+# REASONING_MODEL (see utils/config.py).
 agent = Agent(
-    'openrouter:google/gemini-2.0-flash-001',
+    PARSER_MODEL,
     output_type=InterviewPlan,
     system_prompt=(
         "You are an expert technical recruiter and interviewer. "

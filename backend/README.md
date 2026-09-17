@@ -7,7 +7,7 @@ This is the backend service for the AI Interviewer Agent. it uses FastAPI to pro
 - **Framework**: [FastAPI](https://fastapi.tiangolo.com/)
 - **AI Orchestration**: [Pydantic AI](https://ai.pydantic.dev/)
 - **Package Management**: [uv](https://docs.astral.sh/uv/)
-- **LLM Provider**: [OpenRouter](https://openrouter.ai/) (Model: `google/gemini-2.0-flash-001`)
+- **LLM Provider**: [OpenRouter](https://openrouter.ai/) — default model `google/gemini-2.0-flash-001`, configurable via `REASONING_MODEL` (shared) or per-agent `PARSER_MODEL` / `EVALUATOR_MODEL` / `REPORTER_MODEL` env vars
 - **PDF Parsing**: `pypdf`
 
 ## Getting Started

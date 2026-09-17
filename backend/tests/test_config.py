@@ -11,6 +11,10 @@ import pytest
 
 from utils import config
 
+# The AI model resolution helpers. All of them must be tested through the
+# getters, never by re-importing the module, for the same reason as above.
+MODEL_ENV_VARS = ("REASONING_MODEL", "PARSER_MODEL", "EVALUATOR_MODEL", "REPORTER_MODEL", "LIVEKIT_LLM_MODEL")
+
 
 def test_strong_secret_used(monkeypatch):
     secret = "a" * 64
@@ -86,3 +90,78 @@ def test_resolved_secret_at_import_is_valid():
     """The eager module-level JWT_SECRET must always be a strong value."""
     assert config._is_strong_secret(config.JWT_SECRET)
     assert config.ENVIRONMENT in ("development", "production", "staging", "test")
+
+
+# --- AI model resolution ----------------------------------------------------
+
+
+@pytest.fixture
+def clear_model_env(monkeypatch):
+    """Remove any ambient model env vars so each test starts from defaults."""
+    for var in MODEL_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+
+
+def test_reasoning_model_defaults_when_env_unset(clear_model_env):
+    for agent in ("parser", "evaluator", "reporter"):
+        assert config.get_reasoning_model(agent) == "openrouter:google/gemini-2.0-flash-001"
+
+
+def test_shared_reasoning_model_applies_to_all_agents(clear_model_env, monkeypatch):
+    monkeypatch.setenv("REASONING_MODEL", "openrouter:anthropic/claude-3.5-haiku")
+    for agent in ("parser", "evaluator", "reporter"):
+        assert config.get_reasoning_model(agent) == "openrouter:anthropic/claude-3.5-haiku"
+
+
+def test_per_agent_model_overrides_shared(clear_model_env, monkeypatch):
+    monkeypatch.setenv("REASONING_MODEL", "openrouter:shared/model")
+    monkeypatch.setenv("PARSER_MODEL", "openrouter:parser/model")
+    assert config.get_reasoning_model("parser") == "openrouter:parser/model"
+    assert config.get_reasoning_model("evaluator") == "openrouter:shared/model"
+    assert config.get_reasoning_model("reporter") == "openrouter:shared/model"
+
+
+def test_per_agent_model_without_shared(clear_model_env, monkeypatch):
+    monkeypatch.setenv("REPORTER_MODEL", "openrouter:only/reporter")
+    assert config.get_reasoning_model("reporter") == "openrouter:only/reporter"
+    assert config.get_reasoning_model("parser") == "openrouter:google/gemini-2.0-flash-001"
+
+
+def test_blank_model_values_are_treated_as_unset(clear_model_env, monkeypatch):
+    monkeypatch.setenv("REASONING_MODEL", "   ")
+    monkeypatch.setenv("EVALUATOR_MODEL", "")
+    assert config.get_reasoning_model("evaluator") == "openrouter:google/gemini-2.0-flash-001"
+
+
+def test_model_value_whitespace_is_stripped(clear_model_env, monkeypatch):
+    monkeypatch.setenv("PARSER_MODEL", "  openrouter:parser/model  ")
+    assert config.get_reasoning_model("parser") == "openrouter:parser/model"
+
+
+def test_resolved_models_at_import_match_getters():
+    """The eager module-level constants must agree with the getter logic.
+
+    No fixture here: both sides must read the *same* environment — the
+    constants were resolved at import, the getter at call time.
+    """
+    assert config.PARSER_MODEL == config.get_reasoning_model("parser")
+    assert config.EVALUATOR_MODEL == config.get_reasoning_model("evaluator")
+    assert config.REPORTER_MODEL == config.get_reasoning_model("reporter")
+
+
+def test_voice_llm_model_default(clear_model_env):
+    assert config.get_voice_llm_model() == "openai/gpt-4o-mini"
+
+
+def test_voice_llm_model_override(clear_model_env, monkeypatch):
+    monkeypatch.setenv("LIVEKIT_LLM_MODEL", "openai/gpt-4.1-mini")
+    assert config.get_voice_llm_model() == "openai/gpt-4.1-mini"
+
+
+def test_voice_llm_model_blank_treated_as_unset(clear_model_env, monkeypatch):
+    monkeypatch.setenv("LIVEKIT_LLM_MODEL", "  ")
+    assert config.get_voice_llm_model() == "openai/gpt-4o-mini"
+
+
+def test_resolved_voice_llm_model_at_import_matches_getter():
+    assert config.LIVEKIT_LLM_MODEL == config.get_voice_llm_model()

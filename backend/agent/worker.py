@@ -28,6 +28,7 @@ from models.schemas import InterviewPlan, FinalReport
 from models.context import InterviewContext
 from agent.evaluator import evaluator_agent
 from agent.reporter import reporter_agent
+from utils.config import LIVEKIT_LLM_MODEL
 from utils.tracing import setup_langfuse
 
 load_dotenv()
@@ -45,6 +46,7 @@ logger.setLevel(logging.INFO)
 
 # Keep realtime providers configurable so cost/quality tradeoffs can be changed
 # without modifying the worker image. Fish Audio's free model is the default TTS.
+# LIVEKIT_LLM_MODEL (voice-pipeline LLM) is resolved in utils/config.py.
 STT_MODEL = os.getenv("LIVEKIT_STT_MODEL", "deepgram/nova-3")
 TTS_MODEL = os.getenv("LIVEKIT_TTS_MODEL", "fishaudio/s2.1-pro-free")
 TTS_VOICE = os.getenv("LIVEKIT_TTS_VOICE", "9a9cf47702da476aa4629e2506d4a857")
@@ -212,7 +214,7 @@ async def entrypoint(ctx: JobContext):
     session = voice.AgentSession(
         vad=silero.VAD.load(),
         stt=inference.STT(model=STT_MODEL),
-        llm=inference.LLM(model="openai/gpt-4o-mini"),
+        llm=inference.LLM(model=LIVEKIT_LLM_MODEL),
         tts=inference.TTS(
             model=TTS_MODEL,
             voice=TTS_VOICE,

@@ -2,11 +2,18 @@ from pydantic_ai import Agent
 from models.schemas import FinalReport
 from dotenv import load_dotenv
 
+# backend/.env must be loaded before utils.config resolves model constants at
+# import time. Local `uv run` processes depend on it; Docker/compose and test
+# envs are set before process start and win either way (load_dotenv never
+# overrides existing vars).
 load_dotenv()
 
-# Define the Report Generator Agent
+from utils.config import REPORTER_MODEL  # noqa: E402  (must follow load_dotenv)
+
+# Define the Report Generator Agent. Model selectable via REPORTER_MODEL /
+# REASONING_MODEL (see utils/config.py).
 reporter_agent = Agent(
-    'openrouter:google/gemini-2.0-flash-001',
+    REPORTER_MODEL,
     output_type=FinalReport,
     system_prompt=(
         "You are a senior technical recruiter responsible for summarizing an interview. "

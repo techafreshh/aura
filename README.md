@@ -40,7 +40,7 @@ When they finish, the recruiter gets the PDF report and the **audio recording** 
 conversation. Monthly interviews per recruiter are capped (`RECRUITER_MONTHLY_LIMIT`) to
 control AI spend.
 - **Worker** — LiveKit VoicePipelineAgent with Pydantic AI reasoning agents
-- **AI Models** — GPT-4o-mini (voice), Gemini 2.0 Flash via OpenRouter (reasoning), Deepgram Nova-3 (STT), Fish Audio S2.1 Pro Free (TTS)
+- **AI Models** — GPT-4o-mini (voice), Gemini 2.0 Flash via OpenRouter (reasoning), Deepgram Nova-3 (STT), Fish Audio S2.1 Pro Free (TTS). Every model is env-configurable — see the Environment Variables table.
 
 ## Quick Start
 
@@ -90,7 +90,10 @@ The app is served on `127.0.0.1:3000`. Point a reverse proxy (Caddy/nginx) with 
 | Variable | Purpose |
 |----------|---------|
 | `OPENROUTER_API_KEY` | Pydantic AI agents (parser, evaluator, reporter) |
+| `REASONING_MODEL` | Model for all three reasoning agents, pydantic-ai format (default: `openrouter:google/gemini-2.0-flash-001`) |
+| `PARSER_MODEL` / `EVALUATOR_MODEL` / `REPORTER_MODEL` | Per-agent override of `REASONING_MODEL` (same format; optional) |
 | `OPENAI_API_KEY` | LiveKit plugins (STT, LLM, TTS) |
+| `LIVEKIT_LLM_MODEL` | Voice-pipeline LLM, the interviewer's conversation model (default: `openai/gpt-4o-mini`) |
 | `LIVEKIT_STT_MODEL` | LiveKit Inference STT model (default: `deepgram/nova-3`) |
 | `LIVEKIT_TTS_MODEL` | LiveKit Inference TTS model (default: `fishaudio/s2.1-pro-free`) |
 | `LIVEKIT_TTS_VOICE` | Fish Audio voice ID used by the realtime interviewer |
