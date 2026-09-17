@@ -153,7 +153,11 @@ RECRUITER_MONTHLY_LIMIT: int = get_recruiter_monthly_limit()
 # Every model the application talks to is selectable via env, so cost/quality
 # tradeoffs can be changed without touching code. Pydantic AI agents use the
 # provider-prefixed format (``openrouter:<model>``); LiveKit Inference models
-# use ``<provider>/<model>`` (e.g. ``deepgram/nova-3``).
+# use ``<provider>/<model>`` (e.g. ``deepgram/nova-3``). The voice-pipeline LLM
+# and STT (LIVEKIT_LLM_MODEL / LIVEKIT_STT_MODEL, resolved in agent/worker.py)
+# accept both formats: an ``openrouter:`` prefix bills those calls to the
+# OpenRouter account, an unprefixed ``<provider>/<model>`` bills them to
+# LiveKit Inference.
 
 _DEFAULT_REASONING_MODEL = "openrouter:google/gemini-2.0-flash-001"
 _DEFAULT_VOICE_LLM_MODEL = "openai/gpt-4o-mini"
@@ -176,7 +180,13 @@ def get_reasoning_model(agent: str) -> str:
 
 
 def get_voice_llm_model() -> str:
-    """Resolve the voice-pipeline LLM used by the LiveKit AgentSession."""
+    """Resolve the voice-pipeline LLM used by the LiveKit AgentSession.
+
+    ``openrouter:<model>`` routes through OpenRouter (worker-side, billed to
+    OPENROUTER_API_KEY); ``<provider>/<model>`` routes through LiveKit
+    Inference (billed to the LiveKit account). The routing itself happens in
+    ``agent/worker.create_voice_llm``.
+    """
     return os.getenv("LIVEKIT_LLM_MODEL", "").strip() or _DEFAULT_VOICE_LLM_MODEL
 
 
