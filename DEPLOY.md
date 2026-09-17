@@ -136,8 +136,10 @@ To move an existing deployment off the SQLite file onto a shared Postgres instan
 
    ```bash
    docker compose run --rm backend \
-       python scripts/migrate_sqlite_to_postgres.py --source /app/data/aura.db
+       uv run python scripts/migrate_sqlite_to_postgres.py --source /app/data/aura.db
    ```
+
+   Note: `uv run` is required — bare `python` is the system interpreter without the app's dependencies. Also don't pass explicit `-f` compose files here unless you include `docker-compose.override.yml`; without the override the container mounts the base compose's empty named volume instead of the production `./backend/data` bind mount.
 
 5. **Restart.** `docker compose up -d` — the backend starts, migrates (no-op at head), and serves from Postgres.
 
