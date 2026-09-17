@@ -59,7 +59,7 @@ from db.crud import (
     ALREADY_CLAIMED,
     CANCELLED,
 )
-from db.database import async_session, init_db
+from db.database import DATABASE_URL, async_session, init_db
 from utils.config import ENVIRONMENT, OAUTH_SESSION_SECRET, RECRUITER_MONTHLY_LIMIT
 
 import sentry_sdk
@@ -73,23 +73,42 @@ sentry_sdk.init(
 )
 
 def _run_migrations() -> None:
-    """Bring the SQLite schema up to date with Alembic migrations.
+    """Bring the database schema up to date with Alembic migrations.
 
-    Auto-heals databases created by the earlier ``create_all``-only deploys:
-    if the schema exists but has no ``alembic_version`` table, it is validated
-    against the current models and then stamped at head instead of migrated.
-    A schema that is missing tables or columns is *not* stamped — startup
-    fails loudly instead of 500ing later with an opaque ``no such column``.
+    Two very different databases flow through here:
+
+    - ``DATABASE_URL`` (Postgres, …): the server owns the schema lifecycle.
+      An empty database builds the full schema from the migrations; an
+      existing one upgrades in place. None of the SQLite file healing below
+      applies — a legacy SQLite database cannot be reached this way at all.
+    - SQLite file (default): auto-heals databases created by the earlier
+      ``create_all``-only deploys: if the schema exists but has no
+      ``alembic_version`` table, it is validated against the current models
+      and then stamped at head instead of migrated. A schema that is missing
+      tables or columns is *not* stamped — startup fails loudly instead of
+      500ing later with an opaque ``no such column``.
+
     Runs synchronously — invoke via ``asyncio.to_thread`` so the event loop
-    isn't blocked.
+    isn't blocked. For Postgres the Alembic invocation drives the app's async
+    driver internally (see migrations/env.py), so this stays a plain sync
+    call either way.
     """
-    import sqlite3
-
     from alembic import command
     from alembic.config import Config
 
     from db.database import DB_PATH, Base, _find_missing_columns, _add_missing_user_columns_sqlite
     from db import models  # noqa: F401  (ensures all tables are registered on Base.metadata)
+
+    backend_root = Path(__file__).resolve().parent.parent
+    alembic_cfg = Config(str(backend_root / "alembic.ini"))
+
+    if DATABASE_URL:
+        try:
+            command.upgrade(alembic_cfg, "head")
+        except Exception as exc:
+            logger.error(f"Database migration failed for the DATABASE_URL target: {exc}")
+            raise RuntimeError(f"Database startup migrations failed: {exc}") from exc
+        return
 
     if DB_PATH == ":memory:":
         # An in-memory SQLite DB lives inside a single connection; it starts
@@ -97,10 +116,9 @@ def _run_migrations() -> None:
         # there is nothing to migrate or stamp here.
         return
 
-    backend_root = Path(__file__).resolve().parent.parent
-    alembic_cfg = Config(str(backend_root / "alembic.ini"))
-
     try:
+        import sqlite3
+
         conn = sqlite3.connect(DB_PATH)
         try:
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}

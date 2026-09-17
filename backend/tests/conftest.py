@@ -6,6 +6,9 @@ import pytest_asyncio
 os.environ.setdefault("JWT_SECRET", "test-secret-key-for-testing-only")
 os.environ.setdefault("DATABASE_PATH", ":memory:")
 os.environ.setdefault("WORKER_API_KEY", "test-worker-key")
+# The suite targets the in-memory SQLite DB; never let a DATABASE_URL exported
+# in the operator's shell (a real Postgres, say) leak into test runs.
+os.environ.pop("DATABASE_URL", None)
 
 
 class _TestUser:
