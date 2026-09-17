@@ -521,8 +521,8 @@ async def test_concurrent_start_binds_only_one_session(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_invite_redeem_claim_is_single_use_at_db_level():
-    """`redeem_invite` returns False for a second claim on the same invite."""
-    from db.crud import get_invite_by_id, redeem_invite, release_invite_claim
+    """`redeem_invite` returns CLAIMED once, then ALREADY_CLAIMED for the same invite."""
+    from db.crud import redeem_invite, release_invite_claim, CLAIMED, ALREADY_CLAIMED
     from db.models import InterviewInvite
 
     recruiter = await _make_recruiter()
@@ -531,9 +531,9 @@ async def test_invite_redeem_claim_is_single_use_at_db_level():
                                      questions=["Q1?", "Q2?"], token="tok-cas")
         invite_id = invite.id
 
-        assert await redeem_invite(db, invite_id, candidate_user_id="cand-a", session_id="sess-a") is True
+        assert await redeem_invite(db, invite_id, candidate_user_id="cand-a", session_id="sess-a") == CLAIMED
         # A second claim (different candidate, same invite) must lose.
-        assert await redeem_invite(db, invite_id, candidate_user_id="cand-b", session_id="sess-b") is False
+        assert await redeem_invite(db, invite_id, candidate_user_id="cand-b", session_id="sess-b") == ALREADY_CLAIMED
 
         stored = await db.get(InterviewInvite, invite_id)
         assert stored.candidate_user_id == "cand-a"
@@ -543,7 +543,74 @@ async def test_invite_redeem_claim_is_single_use_at_db_level():
         await release_invite_claim(db, invite_id)
         await db.refresh(stored)
         assert stored.candidate_user_id is None and stored.session_id is None and stored.redeemed_at is None
-        assert await redeem_invite(db, invite_id, candidate_user_id="cand-b", session_id="sess-b") is True
+        assert await redeem_invite(db, invite_id, candidate_user_id="cand-b", session_id="sess-b") == CLAIMED
+
+
+@pytest.mark.asyncio
+async def test_redeem_invite_enforces_quota_at_db_level():
+    """The monthly-limit guard lives inside the atomic claim, not a pre-check.
+
+    A pre-claim SELECT lets two concurrent starts on *different* invites of the
+    same recruiter both pass and overshoot the quota.
+    """
+    from db.crud import redeem_invite, CLAIMED, QUOTA_EXCEEDED
+    from db.models import InterviewInvite
+
+    recruiter = await _make_recruiter()
+    async with async_session() as db:
+        inv_a = await create_invite(db, recruiter_id=recruiter.id, title="A", context=None,
+                                    questions=["Q1?", "Q2?"], token="tok-db-quota-a")
+        inv_b = await create_invite(db, recruiter_id=recruiter.id, title="B", context=None,
+                                    questions=["Q1?", "Q2?"], token="tok-db-quota-b")
+        a_id, b_id = inv_a.id, inv_b.id
+
+        assert await redeem_invite(db, a_id, candidate_user_id="c1", session_id="s1",
+                                   recruiter_id=recruiter.id, monthly_limit=1) == CLAIMED
+        # Second invite, same recruiter, limit already consumed.
+        assert await redeem_invite(db, b_id, candidate_user_id="c2", session_id="s2",
+                                   recruiter_id=recruiter.id, monthly_limit=1) == QUOTA_EXCEEDED
+
+        # The blocked claim must not have bound the invite.
+        stored = await db.get(InterviewInvite, b_id)
+        assert stored.candidate_user_id is None and stored.redeemed_at is None
+
+
+@pytest.mark.asyncio
+async def test_redeem_invite_rejects_cancelled_at_db_level():
+    """A cancelled invite cannot be redeemed, even before any candidate bound it."""
+    from db.crud import redeem_invite, CANCELLED
+
+    recruiter = await _make_recruiter()
+    async with async_session() as db:
+        invite = await create_invite(db, recruiter_id=recruiter.id, title="C", context=None,
+                                     questions=["Q1?", "Q2?"], token="tok-db-cancel")
+        invite_id = invite.id
+        invite.status = "cancelled"
+        await db.commit()
+
+    async with async_session() as db:
+        assert await redeem_invite(db, invite_id, candidate_user_id="c1", session_id="s1") == CANCELLED
+
+
+@pytest.mark.asyncio
+async def test_started_invite_cannot_be_cancelled():
+    """An invite whose candidate already started must not be cancellable —
+    otherwise the report landing would flip a "cancelled" invite to "completed"."""
+    recruiter = await _make_recruiter()
+    async with async_session() as db:
+        invite = await create_invite(db, recruiter_id=recruiter.id, title="A", context=None,
+                                     questions=["Q1?", "Q2?"], token="tok-cancel-started")
+        invite_id, token = invite.id, invite.token
+
+    await _make_candidate()
+    async with _client() as ac:
+        assert (await ac.post(f"/invite/{token}/start")).status_code == 200
+
+    override_user(recruiter)
+    async with _client() as ac:
+        resp = await ac.post(f"/recruiter/invites/{invite_id}/cancel")
+    assert resp.status_code == 409
+    assert "started" in resp.json()["detail"]
 
 
 def test_invite_create_schema_rejects_whitespace_only_title():

@@ -80,7 +80,13 @@ export function useRoomRecorder({ enabled, connected, micTrack, agentTrack, onCo
       const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
         : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : ''
-      const recorder = new MediaRecorder(dest.stream, mime ? { mimeType: mime } : undefined)
+      // ~64 kbps keeps a cap-length (10 min) interview around 5 MB — well
+      // inside MAX_AUDIO_SIZE (25 MB, api/main.py) and the nginx proxy cap
+      // sized to match it. Chrome's ~128 kbps default lands right at 10 MB.
+      const recorder = new MediaRecorder(
+        dest.stream,
+        mime ? { mimeType: mime, audioBitsPerSecond: 64_000 } : { audioBitsPerSecond: 64_000 },
+      )
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data) }
       recorder.onstop = () => {
         const finished = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' })

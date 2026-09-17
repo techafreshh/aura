@@ -55,6 +55,9 @@ from db.crud import (
     redeem_invite,
     release_invite_claim,
     complete_invite_by_session,
+    CLAIMED,
+    ALREADY_CLAIMED,
+    CANCELLED,
 )
 from db.database import async_session, init_db
 from utils.config import ENVIRONMENT, OAUTH_SESSION_SECRET, RECRUITER_MONTHLY_LIMIT
@@ -306,7 +309,6 @@ async def get_plan(session_id: str, request: Request, user=Depends(get_current_u
     # Owner, admin, or the recruiter whose invite created the session may read it.
     is_worker = getattr(user, "role", None) == "worker"
     if not is_worker and not await can_access_session(session, user):
-        raise HTTPException(status_code=403, detail="Access denied")
         raise HTTPException(status_code=403, detail="Access denied")
 
     async with async_session() as db:
@@ -730,6 +732,14 @@ async def cancel_interview_invite(request: Request, invite_id: str, user=Depends
         invite = await _get_owned_invite(db, invite_id, user)
         if invite.status != "pending":
             raise HTTPException(status_code=409, detail="Only pending invites can be cancelled")
+        if invite.candidate_user_id:
+            # A redeemed-but-unfinished invite has a bound candidate and may
+            # still complete; cancelling it would flip it back to "completed"
+            # when the report lands, and the link is spent either way.
+            raise HTTPException(
+                status_code=409,
+                detail="This invite has already been started by a candidate and can no longer be cancelled",
+            )
         invite.status = "cancelled"
         await db.commit()
         await db.refresh(invite)
@@ -785,40 +795,47 @@ async def start_invited_interview(request: Request, token: str, user=Depends(get
                     plan=InterviewPlan.model_validate_json(session.plan_json),
                 )
 
-        quota_used = await count_redeemed_invites_this_month(db, invite.recruiter_id)
-        if quota_used >= RECRUITER_MONTHLY_LIMIT:
-            raise HTTPException(
-                status_code=403,
-                detail="This recruiter has reached their monthly interview limit. Please try again next month.",
-            )
-
         plan = InterviewPlan(
             candidate_name=sanitize_name(user.name) or "Candidate",
             extracted_skills=[],
             question_bank=json.loads(invite.questions_json),
             job_description=invite.context,
         )
-        # Claim the invite *before* creating the session so the single-use rule is
-        # a compare-and-swap rather than a check-then-act: concurrent starts race
-        # on this UPDATE, and only the winner goes on to create a session.
+        # Claim the invite *before* creating the session so single-use, the
+        # cancelled guard, and the monthly quota are all one compare-and-swap:
+        # concurrent starts race on this UPDATE, and only the winner goes on to
+        # create a session. Checking the quota with a SELECT first would let two
+        # starts on different invites of the same recruiter both pass.
         session_id = str(uuid.uuid4())
-        claimed = await redeem_invite(
-            db, invite.id, candidate_user_id=user.id, session_id=session_id
+        reason = await redeem_invite(
+            db,
+            invite.id,
+            candidate_user_id=user.id,
+            session_id=session_id,
+            recruiter_id=invite.recruiter_id,
+            monthly_limit=RECRUITER_MONTHLY_LIMIT,
         )
-        if not claimed:
-            # Another request bound this invite first. If it was this same
-            # candidate, hand back their session; otherwise the link is spent.
-            # refresh() rather than a re-query: the session is not expired on
-            # commit, so a re-query would hand back the stale cached row.
-            await db.refresh(invite)
-            if invite.candidate_user_id == user.id and invite.session_id:
-                existing = await get_session(db, invite.session_id)
-                if existing:
-                    return InviteStartResponse(
-                        session_id=existing.id,
-                        plan=InterviewPlan.model_validate_json(existing.plan_json),
-                    )
-            raise HTTPException(status_code=403, detail="This invite has already been used")
+        if reason != CLAIMED:
+            if reason == ALREADY_CLAIMED:
+                # Another request bound this invite first. If it was this same
+                # candidate, hand back their session; otherwise the link is spent.
+                # refresh() rather than a re-query: the session is not expired on
+                # commit, so a re-query would hand back the stale cached row.
+                await db.refresh(invite)
+                if invite.candidate_user_id == user.id and invite.session_id:
+                    existing = await get_session(db, invite.session_id)
+                    if existing:
+                        return InviteStartResponse(
+                            session_id=existing.id,
+                            plan=InterviewPlan.model_validate_json(existing.plan_json),
+                        )
+                raise HTTPException(status_code=403, detail="This invite has already been used")
+            if reason == CANCELLED:
+                raise HTTPException(status_code=409, detail="This invite was cancelled")
+            raise HTTPException(
+                status_code=403,
+                detail="This recruiter has reached their monthly interview limit. Please try again next month.",
+            )
 
         try:
             session = await create_session(

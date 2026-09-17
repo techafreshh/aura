@@ -15,6 +15,7 @@ import { Track, ConnectionState, type LocalAudioTrack } from "livekit-client";
 import axios from "axios";
 import { getReport, uploadAudio } from "@/api/client";
 import { useRoomRecorder } from "@/hooks/use-recorder";
+import { useToast } from "@/hooks/use-toast";
 import "@/styles/aura-arena.css";
 
 interface InterviewAgentProps {
@@ -83,6 +84,7 @@ function MicSelector() {
 }
 
 function InterviewInner({ sessionId, candidateName = "Candidate", recordAudio = false, onInterviewEnd }: { sessionId: string; candidateName?: string; recordAudio?: boolean; onInterviewEnd: (report: any) => void }) {
+  const { toast } = useToast();
   const [hasConnected, setHasConnected] = useState(false);
   const [hasEnded, setHasEnded] = useState(false);
   const [endedOpen, setEndedOpen] = useState(false);
@@ -119,6 +121,14 @@ function InterviewInner({ sessionId, candidateName = "Candidate", recordAudio = 
       // Allow a later stop to retry rather than dropping the recording.
       audioUploadedRef.current = false;
       console.error("Audio upload failed:", err);
+      // The recruiter sees only "no recording available" otherwise — make the
+      // failure visible to the candidate so it can be reported/retried.
+      toast({
+        title: "Recording not saved",
+        description: "We couldn't upload the interview recording. The report is unaffected — please mention it to your recruiter.",
+        variant: "destructive",
+        duration: 8000,
+      });
     });
   };
 
