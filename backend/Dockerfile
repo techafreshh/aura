@@ -18,6 +18,10 @@ COPY __init__.py .
 COPY alembic.ini ./
 COPY migrations/ migrations/
 
+# One-off operational scripts (e.g. scripts/migrate_sqlite_to_postgres.py for
+# the DEPLOY.md cutover runbook) run via `docker compose run --rm backend`.
+COPY scripts/ scripts/
+
 EXPOSE 8000
 
 # The app sits behind a proxy chain (Caddy -> frontend nginx) that strips an
