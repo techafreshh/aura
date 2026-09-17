@@ -7,9 +7,8 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
-
 import sqlalchemy as sa
-from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Query, BackgroundTasks, Depends
+from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException, Query, BackgroundTasks, Depends
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
@@ -19,16 +18,49 @@ from livekit.api import AccessToken, VideoGrants
 from langfuse import propagate_attributes
 from agent.parser import agent
 from utils.pdf_parser import extract_text_from_pdf
-from utils.storage import archive_report, archive_transcript, get_artifact, archive_pdf
+from utils.storage import archive_report, archive_transcript, get_artifact, archive_pdf, archive_audio
 from utils.pdf_report import generate_report_pdf
 from utils.tracing import setup_langfuse
-from models.schemas import UploadResponse, InterviewPlan, FinalReport, TranscriptPayload, SessionSummary, AdminSessionDetail
+from models.schemas import (
+    UploadResponse,
+    InterviewPlan,
+    FinalReport,
+    TranscriptPayload,
+    SessionSummary,
+    AdminSessionDetail,
+    InviteCreate,
+    InviteOut,
+    InviteDetail,
+    InvitePreview,
+    InviteStartResponse,
+    RecruiterInvitesResponse,
+)
 from api.deps import get_current_user, require_admin
 from api.rate_limit import limiter
 from api.auth import router as auth_router
-from db.crud import create_session, get_session, get_user_by_id, update_session_report, update_session_transcript, list_user_sessions, list_all_sessions
+from db.crud import (
+    create_session,
+    get_session,
+    get_user_by_id,
+    update_session_report,
+    update_session_transcript,
+    list_user_sessions,
+    list_all_sessions,
+    create_invite,
+    get_invite_by_id,
+    get_invite_by_token,
+    get_invite_by_session,
+    list_invites_for_recruiter,
+    count_redeemed_invites_this_month,
+    redeem_invite,
+    release_invite_claim,
+    complete_invite_by_session,
+    CLAIMED,
+    ALREADY_CLAIMED,
+    CANCELLED,
+)
 from db.database import async_session, init_db
-from utils.config import ENVIRONMENT, OAUTH_SESSION_SECRET
+from utils.config import ENVIRONMENT, OAUTH_SESSION_SECRET, RECRUITER_MONTHLY_LIMIT
 
 import sentry_sdk
 
@@ -56,7 +88,7 @@ def _run_migrations() -> None:
     from alembic import command
     from alembic.config import Config
 
-    from db.database import DB_PATH, _find_missing_columns, _add_missing_user_columns_sqlite
+    from db.database import DB_PATH, Base, _find_missing_columns, _add_missing_user_columns_sqlite
     from db import models  # noqa: F401  (ensures all tables are registered on Base.metadata)
 
     if DB_PATH == ":memory:":
@@ -93,6 +125,13 @@ def _run_migrations() -> None:
 
             sync_engine = sa.create_engine(f"sqlite:///{DB_PATH}")
             try:
+                # Additive tables (a table added to the models since the last
+                # release) are created before the drift check: stamping at head
+                # asserts the migrations ran, so the table must exist, and
+                # init_db()'s create_all would build it moments later anyway.
+                # Without this, a legacy DB missing any new table is refused at
+                # startup instead of being brought up to date.
+                Base.metadata.create_all(sync_engine)
                 with sync_engine.connect() as engine_conn:
                     missing = _find_missing_columns(engine_conn)
             finally:
@@ -157,6 +196,7 @@ app.add_middleware(
 )
 
 MAX_PDF_SIZE = 10 * 1024 * 1024  # 10 MB
+MAX_AUDIO_SIZE = 25 * 1024 * 1024  # 25 MB (~25 min of opus audio)
 
 
 def sanitize_name(name: str) -> str:
@@ -170,11 +210,37 @@ def sanitize_name(name: str) -> str:
     return name or "Unknown"
 
 
+def sanitize_text(text: str, max_length: int) -> str:
+    """Strip HTML tags and cap length for free-text inputs (job descriptions, etc.)."""
+    if not isinstance(text, str):
+        return ""
+    text = re.sub(r'<[^>]+>', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text[:max_length]
+
+
+async def can_access_session(session, user) -> bool:
+    """Owner, admin, or the recruiter whose invite created the session."""
+    if user.role == "admin":
+        return True
+    if session.user_id == user.id:
+        return True
+    async with async_session() as db:
+        invite = await get_invite_by_session(db, session.id)
+    return bool(invite and invite.recruiter_id == user.id)
+
+
+def require_recruiter(user) -> None:
+    if getattr(user, "role", None) not in ("recruiter", "admin"):
+        raise HTTPException(status_code=403, detail="Recruiter access required")
+
+
 @app.post("/upload", response_model=UploadResponse)
 @limiter.limit("10/hour")
 async def upload_resume(
     request: Request,
     file: UploadFile = File(...),
+    job_description: str = Form(""),
     user=Depends(get_current_user),
 ):
     if not file.filename.lower().endswith(".pdf"):
@@ -183,17 +249,29 @@ async def upload_resume(
     try:
         file_bytes = await file.read()
         text = await extract_text_from_pdf(file_bytes)
+        jd = sanitize_text(job_description, 4000)
 
         session_id = str(uuid.uuid4())
+
+        # When a job description is provided, steer the question generation
+        # toward the target role (practice-interview mode).
+        parser_input = text
+        if jd:
+            parser_input = (
+                f"Candidate resume:\n{text}\n\n"
+                f"Target job description:\n{jd}\n\n"
+                "Tailor the interview questions to this job description as well as the resume."
+            )
 
         with propagate_attributes(
             session_id=session_id,
             user_id=user.id,
         ):
-            result = await agent.run(text)
+            result = await agent.run(parser_input)
 
         plan = result.output
         plan.candidate_name = sanitize_name(plan.candidate_name) if plan.candidate_name else "Unknown"
+        plan.job_description = jd or None
 
         async with async_session() as db:
             await create_session(
@@ -228,8 +306,9 @@ async def get_plan(session_id: str, request: Request, user=Depends(get_current_u
 
     # The worker fetches the plan with WORKER_API_KEY (same bypass as /report
     # and /transcript); without it the worker silently falls back to a generic plan.
+    # Owner, admin, or the recruiter whose invite created the session may read it.
     is_worker = getattr(user, "role", None) == "worker"
-    if not is_worker and user.role != "admin" and session.user_id != user.id:
+    if not is_worker and not await can_access_session(session, user):
         raise HTTPException(status_code=403, detail="Access denied")
 
     async with async_session() as db:
@@ -305,6 +384,7 @@ async def save_report(
 
     async with async_session() as db:
         await update_session_report(db, session_id, report.model_dump_json())
+        await complete_invite_by_session(db, session_id)
 
     def _archive():
         try:
@@ -324,7 +404,7 @@ async def get_report(session_id: str, user=Depends(get_current_user)):
     if not session:
         raise HTTPException(status_code=404, detail="Report not found for the given session ID.")
 
-    if user.role != "admin" and session.user_id != user.id:
+    if not await can_access_session(session, user):
         raise HTTPException(status_code=403, detail="Access denied")
 
     if not session.report_json:
@@ -402,21 +482,31 @@ async def download_artifact(request: Request, session_id: str, file_type: str, u
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    if user.role != "admin" and session.user_id != user.id:
+    if not await can_access_session(session, user):
         raise HTTPException(status_code=403, detail="Access denied")
 
     file_map = {"transcript": ("transcript.json", "application/json"), "pdf": ("report.pdf", "application/pdf")}
-    entry = file_map.get(file_type)
-    if not entry:
-        raise HTTPException(status_code=400, detail="Invalid file type. Use: transcript, pdf")
-    filename, content_type = entry
-    data = get_artifact(session_id, session.candidate_name, filename)
-    if not data and file_type == "pdf" and session.report_json:
-        data = generate_report_pdf(FinalReport.model_validate_json(session.report_json))
-    if not data and file_type == "transcript" and session.transcript_json:
-        data = session.transcript_json.encode()
-    if not data:
-        raise HTTPException(status_code=404, detail="File not found")
+    if file_type == "audio":
+        # The browser recorder produces webm (Chrome/Firefox) or mp4 (Safari)
+        data = get_artifact(session_id, session.candidate_name, "audio.webm")
+        filename, content_type = "audio.webm", "audio/webm"
+        if not data:
+            data = get_artifact(session_id, session.candidate_name, "audio.mp4")
+            filename, content_type = "audio.mp4", "audio/mp4"
+        if not data:
+            raise HTTPException(status_code=404, detail="Recording not found")
+    else:
+        entry = file_map.get(file_type)
+        if not entry:
+            raise HTTPException(status_code=400, detail="Invalid file type. Use: transcript, pdf, audio")
+        filename, content_type = entry
+        data = get_artifact(session_id, session.candidate_name, filename)
+        if not data and file_type == "pdf" and session.report_json:
+            data = generate_report_pdf(FinalReport.model_validate_json(session.report_json))
+        if not data and file_type == "transcript" and session.transcript_json:
+            data = session.transcript_json.encode()
+        if not data:
+            raise HTTPException(status_code=404, detail="File not found")
     return Response(content=data, media_type=content_type, headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 
@@ -532,3 +622,263 @@ async def admin_get_session_report(request: Request, session_id: str, user=Depen
         return FinalReport.model_validate_json(data.decode())
 
     raise HTTPException(status_code=404, detail="Report not found")
+
+
+def _invite_out(invite, session=None) -> InviteOut:
+    """Build an InviteOut, enriching with candidate/score info from the linked session."""
+    from models.schemas import _extract_score, _extract_recommendation
+
+    return InviteOut(
+        invite_id=invite.id,
+        title=invite.title,
+        context=invite.context,
+        questions=json.loads(invite.questions_json),
+        token=invite.token,
+        status=invite.status,
+        created_at=invite.created_at,
+        completed_at=invite.completed_at,
+        candidate_user_id=invite.candidate_user_id,
+        session_id=invite.session_id,
+        candidate_name=session.candidate_name if session else None,
+        overall_score=_extract_score(session.report_json) if session else None,
+        recommendation=_extract_recommendation(session.report_json) if session else None,
+    )
+
+
+async def _get_owned_invite(db, invite_id: str, user):
+    invite = await get_invite_by_id(db, invite_id)
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invite not found")
+    if invite.recruiter_id != user.id and user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    return invite
+
+
+@app.post("/recruiter/invites", response_model=InviteOut, status_code=201)
+@limiter.limit("30/hour")
+async def create_interview_invite(request: Request, payload: InviteCreate, user=Depends(get_current_user)):
+    """Create an interview invite with 2-5 custom questions. Returns the shareable token."""
+    require_recruiter(user)
+    async with async_session() as db:
+        invite = await create_invite(
+            db,
+            recruiter_id=user.id,
+            title=payload.title.strip(),
+            context=sanitize_text(payload.context, 4000) or None,
+            questions=payload.questions,
+            token=str(uuid.uuid4()),
+        )
+        return _invite_out(invite)
+
+
+@app.get("/recruiter/invites", response_model=RecruiterInvitesResponse)
+@limiter.limit("60/minute")
+async def list_recruiter_invites(
+    request: Request,
+    user=Depends(get_current_user),
+    limit: int = Query(50, le=200),
+    offset: int = Query(0),
+):
+    """List the recruiter's invites with linked-session status, plus monthly quota usage."""
+    require_recruiter(user)
+    async with async_session() as db:
+        invites = await list_invites_for_recruiter(db, user.id, limit=limit, offset=offset)
+        quota_used = await count_redeemed_invites_this_month(db, user.id)
+
+        session_ids = [i.session_id for i in invites if i.session_id]
+        sessions = {}
+        if session_ids:
+            from sqlalchemy import select
+            from db.models import InterviewSession
+            result = await db.execute(
+                select(InterviewSession).where(InterviewSession.id.in_(session_ids))
+            )
+            sessions = {s.id: s for s in result.scalars().all()}
+
+    return RecruiterInvitesResponse(
+        invites=[_invite_out(i, sessions.get(i.session_id)) for i in invites],
+        quota_used=quota_used,
+        quota_limit=RECRUITER_MONTHLY_LIMIT,
+    )
+
+
+@app.get("/recruiter/invites/{invite_id}", response_model=InviteDetail)
+@limiter.limit("60/minute")
+async def get_recruiter_invite(request: Request, invite_id: str, user=Depends(get_current_user)):
+    """Full invite detail for the recruiter: questions, report, and transcript."""
+    require_recruiter(user)
+    async with async_session() as db:
+        invite = await _get_owned_invite(db, invite_id, user)
+        session = await get_session(db, invite.session_id) if invite.session_id else None
+
+    detail = _invite_out(invite, session).model_dump()
+    detail["report"] = (
+        FinalReport.model_validate_json(session.report_json)
+        if session and session.report_json else None
+    )
+    detail["transcript"] = (
+        json.loads(session.transcript_json)
+        if session and session.transcript_json else None
+    )
+    return detail
+
+
+@app.post("/recruiter/invites/{invite_id}/cancel", response_model=InviteOut)
+@limiter.limit("30/hour")
+async def cancel_interview_invite(request: Request, invite_id: str, user=Depends(get_current_user)):
+    """Cancel a pending invite so its link can no longer be redeemed."""
+    require_recruiter(user)
+    async with async_session() as db:
+        invite = await _get_owned_invite(db, invite_id, user)
+        if invite.status != "pending":
+            raise HTTPException(status_code=409, detail="Only pending invites can be cancelled")
+        if invite.candidate_user_id:
+            # A redeemed-but-unfinished invite has a bound candidate and may
+            # still complete; cancelling it would flip it back to "completed"
+            # when the report lands, and the link is spent either way.
+            raise HTTPException(
+                status_code=409,
+                detail="This invite has already been started by a candidate and can no longer be cancelled",
+            )
+        invite.status = "cancelled"
+        await db.commit()
+        await db.refresh(invite)
+        return _invite_out(invite)
+
+
+@app.get("/invite/{token}", response_model=InvitePreview)
+@limiter.limit("60/minute")
+async def get_invite_preview(request: Request, token: str, user=Depends(get_current_user)):
+    """Candidate-facing invite preview: title, context, and questions."""
+    async with async_session() as db:
+        invite = await get_invite_by_token(db, token)
+        if not invite:
+            raise HTTPException(status_code=404, detail="Invite not found")
+        if invite.status == "cancelled":
+            raise HTTPException(status_code=409, detail="This invite was cancelled")
+        if invite.candidate_user_id and invite.candidate_user_id != user.id:
+            raise HTTPException(status_code=403, detail="This invite has already been used")
+        recruiter = await get_user_by_id(db, invite.recruiter_id)
+
+    return InvitePreview(
+        title=invite.title,
+        context=invite.context,
+        questions=json.loads(invite.questions_json),
+        recruiter_name=(recruiter.name if recruiter else "") or "Your recruiter",
+    )
+
+
+@app.post("/invite/{token}/start", response_model=InviteStartResponse)
+@limiter.limit("10/hour")
+async def start_invited_interview(request: Request, token: str, user=Depends(get_current_user)):
+    """Redeem an invite: bind the candidate, create the session, return the plan.
+
+    No parser agent runs here — the recruiter's questions become the plan, so an
+    invited interview costs voice minutes only. The monthly quota is enforced here
+    because that is the moment credits start burning.
+    """
+    async with async_session() as db:
+        invite = await get_invite_by_token(db, token)
+        if not invite:
+            raise HTTPException(status_code=404, detail="Invite not found")
+        if invite.status == "cancelled":
+            raise HTTPException(status_code=409, detail="This invite was cancelled")
+        if invite.candidate_user_id and invite.candidate_user_id != user.id:
+            raise HTTPException(status_code=403, detail="This invite has already been used")
+
+        # Idempotent: re-opening your own invite returns the same session.
+        if invite.candidate_user_id == user.id and invite.session_id:
+            session = await get_session(db, invite.session_id)
+            if session:
+                return InviteStartResponse(
+                    session_id=session.id,
+                    plan=InterviewPlan.model_validate_json(session.plan_json),
+                )
+
+        plan = InterviewPlan(
+            candidate_name=sanitize_name(user.name) or "Candidate",
+            extracted_skills=[],
+            question_bank=json.loads(invite.questions_json),
+            job_description=invite.context,
+        )
+        # Claim the invite *before* creating the session so single-use, the
+        # cancelled guard, and the monthly quota are all one compare-and-swap:
+        # concurrent starts race on this UPDATE, and only the winner goes on to
+        # create a session. Checking the quota with a SELECT first would let two
+        # starts on different invites of the same recruiter both pass.
+        session_id = str(uuid.uuid4())
+        reason = await redeem_invite(
+            db,
+            invite.id,
+            candidate_user_id=user.id,
+            session_id=session_id,
+            recruiter_id=invite.recruiter_id,
+            monthly_limit=RECRUITER_MONTHLY_LIMIT,
+        )
+        if reason != CLAIMED:
+            if reason == ALREADY_CLAIMED:
+                # Another request bound this invite first. If it was this same
+                # candidate, hand back their session; otherwise the link is spent.
+                # refresh() rather than a re-query: the session is not expired on
+                # commit, so a re-query would hand back the stale cached row.
+                await db.refresh(invite)
+                if invite.candidate_user_id == user.id and invite.session_id:
+                    existing = await get_session(db, invite.session_id)
+                    if existing:
+                        return InviteStartResponse(
+                            session_id=existing.id,
+                            plan=InterviewPlan.model_validate_json(existing.plan_json),
+                        )
+                raise HTTPException(status_code=403, detail="This invite has already been used")
+            if reason == CANCELLED:
+                raise HTTPException(status_code=409, detail="This invite was cancelled")
+            raise HTTPException(
+                status_code=403,
+                detail="This recruiter has reached their monthly interview limit. Please try again next month.",
+            )
+
+        try:
+            session = await create_session(
+                db,
+                user_id=user.id,
+                candidate_name=plan.candidate_name,
+                plan_json=plan.model_dump_json(),
+                session_id=session_id,
+            )
+        except Exception:
+            # Don't strand the invite pointing at a session that was never
+            # written — release the claim so the candidate can try again.
+            await release_invite_claim(db, invite.id)
+            raise
+
+    return InviteStartResponse(session_id=session.id, plan=plan)
+
+
+@app.post("/audio/{session_id}")
+@limiter.limit("10/hour")
+async def upload_interview_audio(
+    request: Request,
+    session_id: str,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    user=Depends(get_current_user),
+):
+    """Upload the browser-recorded interview audio (webm/mp4) for archival."""
+    async with async_session() as db:
+        session = await get_session(db, session_id)
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if user.role != "admin" and session.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    ext = "mp4" if (file.filename or "").lower().endswith(".mp4") else "webm"
+    audio_bytes = await file.read()
+    if len(audio_bytes) > MAX_AUDIO_SIZE:
+        raise HTTPException(status_code=413, detail="Audio exceeds 25 MB limit")
+    if len(audio_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Empty audio file")
+
+    background_tasks.add_task(archive_audio, session_id, session.candidate_name, audio_bytes, ext)
+    return {"status": "success"}

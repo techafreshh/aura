@@ -93,3 +93,20 @@ def get_artifact(session_id: str, candidate_name: str, filename: str) -> bytes |
     except Exception as e:
         logger.warning("Failed to get artifact %s/%s: %s", session_id, filename, e)
         return None
+
+def archive_audio(session_id: str, candidate_name: str, audio_bytes: bytes, ext: str = "webm") -> None:
+    """Upload the recorded interview audio to MinIO. Logs errors, never raises.
+
+    ``ext`` is the container extension reported by the browser recorder
+    ("webm" or "mp4"); the download endpoint tries both names.
+    """
+    try:
+        client = _get_client()
+        bucket = os.environ.get("MINIO_BUCKET", "reports")
+        _ensure_bucket(client, bucket)
+        name_slug = re.sub(r"[^a-z0-9]+", "-", candidate_name.lower()).strip("-")
+        folder = f"{name_slug}_{session_id}"
+        client.put_object(bucket, f"{folder}/audio.{ext}", io.BytesIO(audio_bytes), len(audio_bytes))
+        logger.info("Archived audio %s to MinIO", session_id)
+    except Exception as e:
+        logger.error("Failed to archive audio %s: %s", session_id, e)

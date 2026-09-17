@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Literal, Optional
 from datetime import datetime
 import json
@@ -7,6 +7,10 @@ class InterviewPlan(BaseModel):
     candidate_name: str = Field(description="The name of the candidate extracted from the resume.")
     extracted_skills: List[str] = Field(description="A list of core skills identified from the resume.")
     question_bank: List[str] = Field(description="A list of 3-5 personalized interview questions.")
+    job_description: Optional[str] = Field(
+        default=None,
+        description="Optional job description the interview questions were tailored to.",
+    )
 
 class UploadResponse(BaseModel):
     session_id: str = Field(description="Unique identifier for the interview session.")
@@ -117,3 +121,95 @@ def _extract_recommendation(report_json: Optional[str]) -> Optional[str]:
         return json.loads(report_json).get("recommendation")
     except (json.JSONDecodeError, TypeError):
         return None
+
+
+class InviteCreate(BaseModel):
+    """Payload for a recruiter creating an interview invite with custom questions."""
+
+    title: str = Field(min_length=1, max_length=200, description="Name of the role/position being interviewed for.")
+    context: Optional[str] = Field(
+        default=None,
+        max_length=4000,
+        description="Optional job description or context shared with the AI interviewer.",
+    )
+    questions: List[str] = Field(
+        min_length=2,
+        max_length=5,
+        description="The questions the AI interviewer must ask (2-5 to bound interview cost).",
+    )
+
+    @field_validator("title")
+    @classmethod
+    def _clean_title(cls, value: str) -> str:
+        """Strip and reject whitespace-only titles.
+
+        ``min_length=1`` alone accepts ``"   "``, which the endpoint then strips
+        to an empty title and stores in a non-nullable column.
+        """
+        value = value.strip()
+        if not value:
+            raise ValueError("Title must not be empty.")
+        return value
+
+    @field_validator("questions")
+    @classmethod
+    def _clean_questions(cls, value: List[str]) -> List[str]:
+        cleaned = []
+        for q in value:
+            if not isinstance(q, str):
+                raise ValueError("Each question must be a string.")
+            q = q.strip()
+            if not q:
+                raise ValueError("Questions must not be empty.")
+            if len(q) > 500:
+                raise ValueError("Each question must be 500 characters or fewer.")
+            cleaned.append(q)
+        return cleaned
+
+
+class InviteOut(BaseModel):
+    """Invite row as returned in recruiter list/detail views."""
+
+    invite_id: str
+    title: str
+    context: Optional[str] = None
+    questions: List[str]
+    token: str
+    status: str
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+    candidate_user_id: Optional[str] = None
+    session_id: Optional[str] = None
+    # Fields joined from the linked interview session, if any
+    candidate_name: Optional[str] = None
+    overall_score: Optional[int] = None
+    recommendation: Optional[str] = None
+
+
+class RecruiterInvitesResponse(BaseModel):
+    invites: List[InviteOut]
+    quota_used: int
+    quota_limit: int
+
+
+class InviteDetail(InviteOut):
+    """Full recruiter-facing invite detail including report and transcript."""
+
+    report: Optional[FinalReport] = None
+    transcript: Optional[list] = None
+
+
+class InvitePreview(BaseModel):
+    """What a candidate sees before starting an invited interview."""
+
+    title: str
+    context: Optional[str] = None
+    questions: List[str]
+    recruiter_name: str
+
+
+class InviteStartResponse(BaseModel):
+    """Result of redeeming an invite: a session ready for the normal token flow."""
+
+    session_id: str
+    plan: InterviewPlan

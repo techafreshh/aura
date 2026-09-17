@@ -87,7 +87,7 @@ def _add_missing_user_columns_sqlite(conn) -> None:
 
 async def init_db() -> dict[str, list[str]]:
     async with engine.begin() as conn:
-        from db.models import User, OAuthIdentity, InterviewSession  # noqa: F401
+        from db.models import User, OAuthIdentity, InterviewSession, InterviewInvite  # noqa: F401
         await conn.run_sync(Base.metadata.create_all)
         # Safety net for databases predating the ALTER-based migrations, and
         # for tests that exercise init_db directly without running Alembic.

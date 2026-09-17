@@ -69,7 +69,8 @@ class TestCRUD:
             assert created is True
             assert user.email == "crud-test@example.com"
             assert user.name == "CRUD Test"
-            assert user.role == "candidate"
+            # New users have no role until they pick one on the role picker
+            assert user.role == ""
             assert user.id is not None
 
     @pytest.mark.asyncio

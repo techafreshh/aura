@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
-from sqlalchemy import select, desc, func
+from sqlalchemy import select, desc, func, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from db.models import User, OAuthIdentity, InterviewSession
+from db.models import User, OAuthIdentity, InterviewSession, InterviewInvite
 
 
 def _verify_via_oauth(user: User) -> None:
@@ -250,3 +250,182 @@ async def list_all_sessions(
     stmt = stmt.limit(limit).offset(offset)
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+async def set_user_role(db: AsyncSession, user_id: str, role: str) -> User | None:
+    """Set a user's role (candidate/recruiter role picker). Admins are excluded upstream."""
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        return None
+    user.role = role
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+async def create_invite(
+    db: AsyncSession,
+    *,
+    recruiter_id: str,
+    title: str,
+    context: str | None,
+    questions: list[str],
+    token: str,
+) -> InterviewInvite:
+    import json
+
+    invite = InterviewInvite(
+        recruiter_id=recruiter_id,
+        title=title,
+        context=context,
+        questions_json=json.dumps(questions),
+        token=token,
+        status="pending",
+    )
+    db.add(invite)
+    await db.commit()
+    await db.refresh(invite)
+    return invite
+
+
+async def get_invite_by_id(db: AsyncSession, invite_id: str) -> InterviewInvite | None:
+    result = await db.execute(select(InterviewInvite).where(InterviewInvite.id == invite_id))
+    return result.scalar_one_or_none()
+
+
+async def get_invite_by_token(db: AsyncSession, token: str) -> InterviewInvite | None:
+    result = await db.execute(select(InterviewInvite).where(InterviewInvite.token == token))
+    return result.scalar_one_or_none()
+
+
+async def get_invite_by_session(db: AsyncSession, session_id: str) -> InterviewInvite | None:
+    result = await db.execute(select(InterviewInvite).where(InterviewInvite.session_id == session_id))
+    return result.scalar_one_or_none()
+
+
+async def list_invites_for_recruiter(
+    db: AsyncSession,
+    recruiter_id: str,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[InterviewInvite]:
+    result = await db.execute(
+        select(InterviewInvite)
+        .where(InterviewInvite.recruiter_id == recruiter_id)
+        .order_by(desc(InterviewInvite.created_at))
+        .limit(limit)
+        .offset(offset)
+    )
+    return list(result.scalars().all())
+
+
+async def count_redeemed_invites_this_month(db: AsyncSession, recruiter_id: str) -> int:
+    """Count invites redeemed in the current UTC calendar month (the quota unit)."""
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    result = await db.execute(
+        select(func.count())
+        .select_from(InterviewInvite)
+        .where(
+            InterviewInvite.recruiter_id == recruiter_id,
+            InterviewInvite.redeemed_at >= month_start,
+        )
+    )
+    return int(result.scalar_one())
+
+
+CLAIMED = "claimed"
+ALREADY_CLAIMED = "already_claimed"
+CANCELLED = "cancelled"
+QUOTA_EXCEEDED = "quota_exceeded"
+
+
+async def redeem_invite(
+    db: AsyncSession,
+    invite_id: str,
+    *,
+    candidate_user_id: str,
+    session_id: str,
+    recruiter_id: str | None = None,
+    monthly_limit: int | None = None,
+) -> str:
+    """Atomically claim an invite for a candidate.
+
+    The claim is a single conditional UPDATE, so two concurrent
+    ``/invite/{token}/start`` requests cannot both create a session, both
+    consume quota, or redeem a cancelled link — the loser sees zero rows
+    affected and gets one of these failure reasons:
+
+    - ``claimed`` — the UPDATE bound the invite; caller may create the session.
+    - ``already_claimed`` — another candidate (or an earlier request) holds it.
+    - ``cancelled`` — the invite was cancelled (a cancel racing a redeem loses
+      its own race here rather than leaving a cancelled link spendable).
+    - ``quota_exceeded`` — the recruiter's monthly limit was hit *inside* the
+      atomic claim, so concurrent starts on different invites of one recruiter
+      cannot overshoot the quota the way a pre-claim count check lets them.
+    """
+    guards = [
+        InterviewInvite.id == invite_id,
+        InterviewInvite.candidate_user_id.is_(None),
+        InterviewInvite.status == "pending",
+    ]
+    if monthly_limit is not None:
+        month_start = datetime.now(timezone.utc).replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        )
+        quota_count = (
+            select(func.count())
+            .select_from(InterviewInvite)
+            .where(
+                InterviewInvite.recruiter_id == recruiter_id,
+                InterviewInvite.redeemed_at >= month_start,
+            )
+            .scalar_subquery()
+        )
+        guards.append(quota_count < monthly_limit)
+
+    result = await db.execute(
+        update(InterviewInvite)
+        .where(*guards)
+        .values(
+            candidate_user_id=candidate_user_id,
+            session_id=session_id,
+            redeemed_at=datetime.now(timezone.utc),
+        )
+    )
+    await db.commit()
+    if result.rowcount == 1:
+        return CLAIMED
+
+    # Claim lost — re-read the committed row to tell the caller *why*, so the
+    # endpoint can return an accurate error instead of a generic 403.
+    stored = await get_invite_by_id(db, invite_id)
+    if stored is None or stored.candidate_user_id is not None:
+        return ALREADY_CLAIMED
+    if stored.status == "cancelled":
+        return CANCELLED
+    if monthly_limit is not None and recruiter_id is not None:
+        used = await count_redeemed_invites_this_month(db, recruiter_id)
+        if used >= monthly_limit:
+            return QUOTA_EXCEEDED
+    return ALREADY_CLAIMED
+
+
+async def release_invite_claim(db: AsyncSession, invite_id: str) -> None:
+    """Undo a claim whose session could not be written, making the link reusable."""
+    await db.execute(
+        update(InterviewInvite)
+        .where(InterviewInvite.id == invite_id)
+        .values(candidate_user_id=None, session_id=None, redeemed_at=None)
+    )
+    await db.commit()
+
+
+async def complete_invite_by_session(db: AsyncSession, session_id: str) -> None:
+    """Mark the invite linked to a session as completed (called when the report lands)."""
+    invite = await get_invite_by_session(db, session_id)
+    if invite:
+        invite.status = "completed"
+        invite.completed_at = datetime.now(timezone.utc)
+        await db.commit()

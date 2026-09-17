@@ -27,9 +27,23 @@ export function LoginPage() {
   const [needsVerification, setNeedsVerification] = useState(false);
   const [resent, setResent] = useState(false);
 
-  const onSuccess = (token: string, user: { id: string; email: string; name: string; role: 'admin' | 'candidate'; avatar_url?: string | null }) => {
+  const onSuccess = (token: string, user: { id: string; email: string; name: string; role: 'admin' | 'candidate' | 'recruiter' | ''; avatar_url?: string | null }) => {
     setAuth(token, { ...user, avatar_url: user.avatar_url ?? undefined });
-    navigate(user.role === 'admin' ? '/admin' : '/interview', { replace: true });
+    // Same routing as the OAuth callback: deep links survive the round-trip,
+    // and users who have not chosen a role go through the picker first.
+    const returnTo = sessionStorage.getItem('aura_return_to');
+    sessionStorage.removeItem('aura_return_to');
+    if (returnTo) {
+      navigate(returnTo, { replace: true });
+    } else if (user.role === 'admin') {
+      navigate('/admin', { replace: true });
+    } else if (user.role === 'recruiter') {
+      navigate('/recruiter', { replace: true });
+    } else if (user.role === '') {
+      navigate('/choose-role', { replace: true });
+    } else {
+      navigate('/interview', { replace: true });
+    }
   };
 
   const onSubmit = async (e: FormEvent) => {

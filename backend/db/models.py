@@ -22,7 +22,9 @@ class User(Base):
     avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     provider: Mapped[str] = mapped_column(String(20))  # "google" | "github" | "email"
     provider_id: Mapped[str] = mapped_column(String(255))
-    role: Mapped[str] = mapped_column(String(20), default="candidate")  # "admin" | "candidate"
+    # Empty until the user picks "candidate" or "recruiter" on the role picker;
+    # "admin" is granted via ADMIN_EMAIL promotion on login.
+    role: Mapped[str] = mapped_column(String(20), default="")
     # Email/password auth (None for OAuth-only accounts). OAuth emails are
     # provider-verified, so those accounts are trusted immediately.
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -67,3 +69,23 @@ class InterviewSession(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (Index("ix_sessions_status", "status"),)
+
+
+class InterviewInvite(Base):
+    __tablename__ = "interview_invites"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    recruiter_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    context: Mapped[str | None] = mapped_column(Text, nullable=True)
+    questions_json: Mapped[str] = mapped_column(Text)
+    # Opaque token used in the shareable invite URL (/invite/{token})
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    candidate_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
+    # The interview session created on redemption. Kept on this table (rather
+    # than a column on interview_sessions) so existing deployments need no ALTER.
+    session_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("interview_sessions.id"), nullable=True)
+    redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # "pending" | "completed" | "cancelled"
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

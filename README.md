@@ -27,6 +27,18 @@ A real-time voice AI application that conducts interactive job interviews. Uploa
 
 - **Frontend** — React 19, Vite, Tailwind, Shadcn UI, LiveKit Components
 - **Backend** — FastAPI (upload, token generation, report storage)
+
+## Two Ways to Interview
+
+**Practice mode (candidates):** upload a resume, optionally paste a job description so the
+questions target the role, and run a mock voice interview. You get the report, scores, and feedback.
+
+**Recruiter mode:** create an interview with 2–5 of your own questions (plus optional job
+description context), and Aura generates a private invite link. The candidate signs in and
+completes a voice interview answering exactly those questions — no resume parsing needed.
+When they finish, the recruiter gets the PDF report and the **audio recording** of the
+conversation. Monthly interviews per recruiter are capped (`RECRUITER_MONTHLY_LIMIT`) to
+control AI spend.
 - **Worker** — LiveKit VoicePipelineAgent with Pydantic AI reasoning agents
 - **AI Models** — GPT-4o-mini (voice), Gemini 2.0 Flash via OpenRouter (reasoning), Deepgram Nova-3 (STT), Fish Audio S2.1 Pro Free (TTS)
 
@@ -107,6 +119,7 @@ The app is served on `127.0.0.1:3000`. Point a reverse proxy (Caddy/nginx) with 
 | `SENDBYTE_API_KEY` | SendByte API key (`sk_test_…`/`sk_live_…`) for verification, welcome, and password-reset emails (optional — email flows disabled if unset) |
 | `SENDBYTE_FROM_EMAIL` | Verified sender address, e.g. `Aura <no-reply@yourdomain.com>` |
 | `PUBLIC_API_URL` | Public base URL of the API for email links; defaults to `{FRONTEND_URL}/api` in production (optional) |
+| `RECRUITER_MONTHLY_LIMIT` | Max interviews per recruiter per month (default: 20) |
 
 ## API Endpoints
 
@@ -128,6 +141,15 @@ The app is served on `127.0.0.1:3000`. Point a reverse proxy (Caddy/nginx) with 
 | `POST` | `/auth/forgot-password` | Send a password-reset link (via SendByte) |
 | `POST` | `/auth/reset-password` | Set a new password with a reset token |
 | `GET` | `/health` | Health check |
+| `POST` | `/auth/role` | Role picker: set candidate/recruiter role |
+| `POST` | `/recruiter/invites` | Create interview invite (2–5 questions) |
+| `GET` | `/recruiter/invites` | List recruiter's invites + quota usage |
+| `GET` | `/recruiter/invites/{id}` | Invite detail with report/transcript |
+| `POST` | `/recruiter/invites/{id}/cancel` | Cancel a pending invite |
+| `GET` | `/invite/{token}` | Candidate: preview an invite |
+| `POST` | `/invite/{token}/start` | Candidate: redeem invite, create session |
+| `POST` | `/audio/{session_id}` | Upload browser-recorded interview audio |
+| `GET` | `/download/{session_id}/audio` | Download interview recording |
 
 ## Testing
 

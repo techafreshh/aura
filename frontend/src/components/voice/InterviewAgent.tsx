@@ -13,13 +13,17 @@ import {
 import { useState, useEffect, useRef } from "react";
 import { Track, ConnectionState, type LocalAudioTrack } from "livekit-client";
 import axios from "axios";
-import { getReport } from "@/api/client";
+import { getReport, uploadAudio } from "@/api/client";
+import { useRoomRecorder } from "@/hooks/use-recorder";
+import { useToast } from "@/hooks/use-toast";
 import "@/styles/aura-arena.css";
 
 interface InterviewAgentProps {
   token: string;
   sessionId: string;
   candidateName?: string;
+  /** Record mic + agent audio in the browser and upload on end (recruiter invites). */
+  recordAudio?: boolean;
   onInterviewEnd: (report: any) => void;
 }
 
@@ -79,7 +83,8 @@ function MicSelector() {
   );
 }
 
-function InterviewInner({ sessionId, candidateName = "Candidate", onInterviewEnd }: { sessionId: string; candidateName?: string; onInterviewEnd: (report: any) => void }) {
+function InterviewInner({ sessionId, candidateName = "Candidate", recordAudio = false, onInterviewEnd }: { sessionId: string; candidateName?: string; recordAudio?: boolean; onInterviewEnd: (report: any) => void }) {
+  const { toast } = useToast();
   const [hasConnected, setHasConnected] = useState(false);
   const [hasEnded, setHasEnded] = useState(false);
   const [endedOpen, setEndedOpen] = useState(false);
@@ -103,6 +108,37 @@ function InterviewInner({ sessionId, candidateName = "Candidate", onInterviewEnd
   const userBands = useMultibandTrackVolume(micTrack, { bands: METER_BARS, updateInterval: 50 });
   const userArcs = useMultibandTrackVolume(micTrack, { bands: ARC_COUNT, updateInterval: 50 });
   const agentVolume = useTrackVolume(agentAudioTrack?.publication?.track as any);
+
+  // Browser-side recording (recruiter invite sessions only). The upload runs
+  // from onstop rather than a state-watching effect: MediaRecorder fires onstop
+  // asynchronously, so reacting to a render would read the blob before it exists.
+  const audioUploadedRef = useRef(false);
+  const handleRecordingComplete = (recorded: Blob) => {
+    if (audioUploadedRef.current || recorded.size === 0) return;
+    audioUploadedRef.current = true;
+    const ext = recorded.type.includes("mp4") ? "mp4" : "webm";
+    uploadAudio(sessionId, recorded, ext).catch((err) => {
+      // Allow a later stop to retry rather than dropping the recording.
+      audioUploadedRef.current = false;
+      console.error("Audio upload failed:", err);
+      // The recruiter sees only "no recording available" otherwise — make the
+      // failure visible to the candidate so it can be reported/retried.
+      toast({
+        title: "Recording not saved",
+        description: "We couldn't upload the interview recording. The report is unaffected — please mention it to your recruiter.",
+        variant: "destructive",
+        duration: 8000,
+      });
+    });
+  };
+
+  const { recording, stop: stopRecorder } = useRoomRecorder({
+    enabled: recordAudio,
+    connected: roomState === ConnectionState.Connected,
+    micTrack: micTrack as unknown as Parameters<typeof useRoomRecorder>[0]["micTrack"],
+    agentTrack: agentAudioTrack as unknown as Parameters<typeof useRoomRecorder>[0]["agentTrack"],
+    onComplete: handleRecordingComplete,
+  });
 
   // Refs
   const orbWrapRef = useRef<HTMLDivElement>(null);
@@ -242,6 +278,15 @@ function InterviewInner({ sessionId, candidateName = "Candidate", onInterviewEnd
     if (roomState === ConnectionState.Connected) setHasConnected(true);
   }, [roomState]);
 
+  // Stop the recorder when the room disconnects; the finished blob is uploaded
+  // from the recorder's onstop callback (see the hook call above), which fires
+  // asynchronously — so nothing here waits on a render to notice it.
+  useEffect(() => {
+    if (recordAudio && roomState === ConnectionState.Disconnected) {
+      stopRecorder();
+    }
+  }, [roomState, recordAudio, stopRecorder]);
+
   // Timer
   useEffect(() => {
     if (!hasConnected) return;
@@ -361,9 +406,9 @@ function InterviewInner({ sessionId, candidateName = "Candidate", onInterviewEnd
         </div>
 
         <div className="top-center">
-          <div className="session-status" aria-live="polite" aria-atomic="true">
+          <div className="session-status" aria-live="polite" aria-atomic="true" data-recording={recording ? "true" : "false"}>
             <span className="rec-dot" aria-hidden="true"></span>
-            <span>Session · Active</span>
+            <span>{recording ? "Recording" : "Session · Active"}</span>
           </div>
         </div>
 
@@ -524,12 +569,12 @@ function InterviewInner({ sessionId, candidateName = "Candidate", onInterviewEnd
   );
 }
 
-export function InterviewAgent({ token, sessionId, candidateName, onInterviewEnd }: InterviewAgentProps) {
+export function InterviewAgent({ token, sessionId, candidateName, recordAudio, onInterviewEnd }: InterviewAgentProps) {
   const serverUrl = import.meta.env.VITE_LIVEKIT_URL;
   if (!serverUrl) return <div style={{ padding: 32, textAlign: "center", color: "#ef4444" }}>VITE_LIVEKIT_URL is missing in .env</div>;
   return (
     <LiveKitRoom serverUrl={serverUrl} token={token} connect={true} audio={true} video={false} onError={(err) => console.error("LiveKit Error:", err)}>
-      <InterviewInner sessionId={sessionId} candidateName={candidateName} onInterviewEnd={onInterviewEnd} />
+      <InterviewInner sessionId={sessionId} candidateName={candidateName} recordAudio={recordAudio} onInterviewEnd={onInterviewEnd} />
     </LiveKitRoom>
   );
 }

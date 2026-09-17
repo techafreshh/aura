@@ -101,7 +101,9 @@ export function Landing() {
             <a href="#features">Product</a>
             <a href="#stack">Platform</a>
             {user && <Link to="/my-interviews">My interviews</Link>}
+            {(user?.role === 'recruiter' || user?.role === 'admin') && <Link to="/recruiter">Recruiter</Link>}
             {user?.role === 'admin' && <Link to="/admin">Dashboard</Link>}
+            {user && user.role !== 'admin' && <Link to="/choose-role?switch=1">Switch role</Link>}
           </nav>
           <div className="nav-cta">
             {user ? (
