@@ -6,3 +6,7 @@ __pycache__/
 dist/
 logs/
 .agents/
+# Local agent state (session plans, skills) and machine-specific compose
+# overrides — per-developer, never deployed.
+.zcode/
+docker-compose.override.yml
