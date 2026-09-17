@@ -112,3 +112,63 @@ async def test_generate_and_save_report_accepts_user_args(monkeypatch):
     assert ctx.user_id == "user-42"
     assert ctx.user_email == "user42@example.com"
     assert ctx.report_generated is True
+
+
+def test_create_voice_llm_defaults_to_inference(monkeypatch):
+    """An unprefixed <provider>/<model> string stays on LiveKit Inference."""
+    from agent import worker
+
+    monkeypatch.setenv("LIVEKIT_API_KEY", "devkey")
+    monkeypatch.setenv("LIVEKIT_API_SECRET", "devsecret")
+    llm = worker.create_voice_llm("openai/gpt-4o-mini")
+
+    assert isinstance(llm, worker.inference.LLM)
+    assert llm._opts.model == "openai/gpt-4o-mini"
+    assert "livekit.cloud" in llm._opts.base_url
+
+
+def test_create_voice_llm_openrouter_prefix(monkeypatch):
+    """An openrouter: prefix routes the voice LLM through the OpenAI plugin to OpenRouter."""
+    from agent import worker
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test-000")
+    llm = worker.create_voice_llm("openrouter:google/gemini-2.0-flash-001")
+
+    assert isinstance(llm, worker.livekit_openai.LLM)
+    assert llm._opts.model == "google/gemini-2.0-flash-001"
+    assert "openrouter.ai" in str(llm._client.base_url)
+
+
+def test_create_voice_stt_defaults_to_inference(monkeypatch):
+    """An unprefixed STT model string stays on LiveKit Inference."""
+    from agent import worker
+
+    monkeypatch.setenv("LIVEKIT_API_KEY", "devkey")
+    monkeypatch.setenv("LIVEKIT_API_SECRET", "devsecret")
+    stt = worker.create_voice_stt("deepgram/nova-3")
+
+    assert isinstance(stt, worker.inference.STT)
+    assert stt._opts.model == "deepgram/nova-3"
+
+
+def test_create_voice_stt_openrouter_prefix(monkeypatch):
+    """An openrouter: prefix points the OpenAI-compatible STT at OpenRouter."""
+    from agent import worker
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test-000")
+    stt = worker.create_voice_stt("openrouter:deepgram/nova-3")
+
+    assert isinstance(stt, worker.livekit_openai.STT)
+    assert stt.model == "deepgram/nova-3"
+    assert "openrouter.ai" in str(stt._client.base_url)
+    # Auto-detect language, matching inference.STT's no-language default.
+    assert stt._opts.detect_language is True
+
+
+def test_create_voice_stt_openrouter_requires_key(monkeypatch):
+    """A missing OPENROUTER_API_KEY fails loudly instead of silently using OPENAI_API_KEY."""
+    from agent import worker
+
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="OPENROUTER_API_KEY"):
+        worker.create_voice_stt("openrouter:deepgram/nova-3")

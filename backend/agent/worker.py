@@ -22,6 +22,7 @@ from livekit.agents import (
     llm,
 )
 from livekit.agents.telemetry import set_tracer_provider
+from livekit.plugins import openai as livekit_openai
 from livekit.plugins import silero
 from opentelemetry import trace as otel_trace
 from models.schemas import InterviewPlan, FinalReport
@@ -51,6 +52,49 @@ STT_MODEL = os.getenv("LIVEKIT_STT_MODEL", "deepgram/nova-3")
 TTS_MODEL = os.getenv("LIVEKIT_TTS_MODEL", "fishaudio/s2.1-pro-free")
 TTS_VOICE = os.getenv("LIVEKIT_TTS_VOICE", "9a9cf47702da476aa4629e2506d4a857")
 TTS_LANGUAGE = os.getenv("LIVEKIT_TTS_LANGUAGE", "en")
+
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+
+def create_voice_llm(model: str):
+    """Build the voice-pipeline LLM for the AgentSession.
+
+    An ``openrouter:<model>`` value (e.g. ``openrouter:google/gemini-2.0-flash-001``)
+    talks to OpenRouter directly from the worker, so conversation tokens are billed
+    to OPENROUTER_API_KEY credits instead of LiveKit Inference. Any other
+    ``<provider>/<model>`` string is served by LiveKit Inference and billed to the
+    LiveKit account, exactly as before.
+    """
+    if model.startswith("openrouter:"):
+        return livekit_openai.LLM.with_openrouter(model=model.split(":", 1)[1])
+    return inference.LLM(model=model)
+
+
+def create_voice_stt(model: str):
+    """Build the voice-pipeline STT for the AgentSession.
+
+    An ``openrouter:<model>`` value (e.g. ``openrouter:deepgram/nova-3``) sends
+    audio to OpenRouter's OpenAI-compatible ``/audio/transcriptions`` endpoint,
+    billed to OPENROUTER_API_KEY credits instead of LiveKit Inference. OpenRouter
+    transcribes per VAD-detected utterance rather than streaming, so final
+    transcripts arrive after the candidate stops speaking instead of progressively.
+    Unprefixed strings stay on LiveKit Inference with streaming interim results.
+    Language is auto-detected by OpenRouter.
+    """
+    if model.startswith("openrouter:"):
+        api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+        if not api_key:
+            raise ValueError(
+                "LIVEKIT_STT_MODEL uses the openrouter: prefix, "
+                "but OPENROUTER_API_KEY is not set"
+            )
+        return livekit_openai.STT(
+            model=model.split(":", 1)[1],
+            base_url=OPENROUTER_BASE_URL,
+            api_key=api_key,
+            detect_language=True,
+        )
+    return inference.STT(model=model)
 
 # Initialize Langfuse at module level so Agent.instrument_all() patches agents before any room connects
 _langfuse_provider = setup_langfuse()
@@ -213,8 +257,8 @@ async def entrypoint(ctx: JobContext):
     # Initialize the AgentSession
     session = voice.AgentSession(
         vad=silero.VAD.load(),
-        stt=inference.STT(model=STT_MODEL),
-        llm=inference.LLM(model=LIVEKIT_LLM_MODEL),
+        stt=create_voice_stt(STT_MODEL),
+        llm=create_voice_llm(LIVEKIT_LLM_MODEL),
         tts=inference.TTS(
             model=TTS_MODEL,
             voice=TTS_VOICE,
