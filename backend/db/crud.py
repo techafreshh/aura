@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import select, desc, func
+from sqlalchemy import select, desc, func, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from db.models import User, OAuthIdentity, InterviewSession, InterviewInvite
@@ -337,17 +337,41 @@ async def count_redeemed_invites_this_month(db: AsyncSession, recruiter_id: str)
 
 async def redeem_invite(
     db: AsyncSession,
-    invite: InterviewInvite,
+    invite_id: str,
     *,
     candidate_user_id: str,
     session_id: str,
-) -> InterviewInvite:
-    invite.candidate_user_id = candidate_user_id
-    invite.session_id = session_id
-    invite.redeemed_at = datetime.now(timezone.utc)
+) -> bool:
+    """Atomically claim an invite for a candidate. Returns False if already claimed.
+
+    The claim is a single conditional UPDATE guarded on ``candidate_user_id IS
+    NULL``, so two concurrent ``/invite/{token}/start`` requests cannot both
+    create a session or both consume quota — the loser sees zero rows affected.
+    """
+    result = await db.execute(
+        update(InterviewInvite)
+        .where(
+            InterviewInvite.id == invite_id,
+            InterviewInvite.candidate_user_id.is_(None),
+        )
+        .values(
+            candidate_user_id=candidate_user_id,
+            session_id=session_id,
+            redeemed_at=datetime.now(timezone.utc),
+        )
+    )
     await db.commit()
-    await db.refresh(invite)
-    return invite
+    return result.rowcount == 1
+
+
+async def release_invite_claim(db: AsyncSession, invite_id: str) -> None:
+    """Undo a claim whose session could not be written, making the link reusable."""
+    await db.execute(
+        update(InterviewInvite)
+        .where(InterviewInvite.id == invite_id)
+        .values(candidate_user_id=None, session_id=None, redeemed_at=None)
+    )
+    await db.commit()
 
 
 async def complete_invite_by_session(db: AsyncSession, session_id: str) -> None:

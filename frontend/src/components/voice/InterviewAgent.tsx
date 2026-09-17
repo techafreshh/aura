@@ -107,12 +107,27 @@ function InterviewInner({ sessionId, candidateName = "Candidate", recordAudio = 
   const userArcs = useMultibandTrackVolume(micTrack, { bands: ARC_COUNT, updateInterval: 50 });
   const agentVolume = useTrackVolume(agentAudioTrack?.publication?.track as any);
 
-  // Browser-side recording (recruiter invite sessions only)
-  const { recording, blobRef, stop: stopRecorder } = useRoomRecorder({
+  // Browser-side recording (recruiter invite sessions only). The upload runs
+  // from onstop rather than a state-watching effect: MediaRecorder fires onstop
+  // asynchronously, so reacting to a render would read the blob before it exists.
+  const audioUploadedRef = useRef(false);
+  const handleRecordingComplete = (recorded: Blob) => {
+    if (audioUploadedRef.current || recorded.size === 0) return;
+    audioUploadedRef.current = true;
+    const ext = recorded.type.includes("mp4") ? "mp4" : "webm";
+    uploadAudio(sessionId, recorded, ext).catch((err) => {
+      // Allow a later stop to retry rather than dropping the recording.
+      audioUploadedRef.current = false;
+      console.error("Audio upload failed:", err);
+    });
+  };
+
+  const { recording, stop: stopRecorder } = useRoomRecorder({
     enabled: recordAudio,
     connected: roomState === ConnectionState.Connected,
     micTrack: micTrack as unknown as Parameters<typeof useRoomRecorder>[0]["micTrack"],
     agentTrack: agentAudioTrack as unknown as Parameters<typeof useRoomRecorder>[0]["agentTrack"],
+    onComplete: handleRecordingComplete,
   });
 
   // Refs
@@ -253,25 +268,14 @@ function InterviewInner({ sessionId, candidateName = "Candidate", recordAudio = 
     if (roomState === ConnectionState.Connected) setHasConnected(true);
   }, [roomState]);
 
-  // Stop the recorder when the room disconnects, then upload the recording
+  // Stop the recorder when the room disconnects; the finished blob is uploaded
+  // from the recorder's onstop callback (see the hook call above), which fires
+  // asynchronously — so nothing here waits on a render to notice it.
   useEffect(() => {
     if (recordAudio && roomState === ConnectionState.Disconnected) {
       stopRecorder();
     }
   }, [roomState, recordAudio, stopRecorder]);
-
-  const audioUploadedRef = useRef(false);
-  useEffect(() => {
-    if (!recordAudio || audioUploadedRef.current) return;
-    if (roomState !== ConnectionState.Disconnected) return;
-    const blob = blobRef.current;
-    if (!blob || blob.size === 0) return;
-    audioUploadedRef.current = true;
-    const ext = blob.type.includes("mp4") ? "mp4" : "webm";
-    uploadAudio(sessionId, blob, ext).catch((err) =>
-      console.error("Audio upload failed:", err)
-    );
-  }, [roomState, recordAudio, sessionId, blobRef]);
 
   // Timer
   useEffect(() => {

@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import axios from 'axios'
-import { getRecruiterInvite, downloadFile, type InviteDetail as InviteDetailData } from '@/api/client'
+import { getRecruiterInvite, downloadFile, fetchBlob, type InviteDetail as InviteDetailData } from '@/api/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { statusPill, formatDateTime, initials } from '@/lib/dashboard-utils'
 import { ReportView } from '@/components/interview/ReportView'
@@ -39,14 +38,12 @@ export function InviteDetail() {
   // Load the recording as an authenticated blob so it can be played inline
   useEffect(() => {
     if (!invite?.session_id || invite.status !== 'completed') return
-    const url = URL.createObjectURL.bind(URL)
     let objectUrl: string | null = null
-    axios.get(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/download/${invite.session_id}/audio`, {
-      responseType: 'blob',
-      headers: { Authorization: `Bearer ${localStorage.getItem('aura_token')}` },
-    })
-      .then(res => {
-        objectUrl = url(res.data as Blob)
+    // Use the shared client (fetchBlob): it carries the base URL and auth
+    // handling, unlike a hand-rolled axios call with a manual localStorage token.
+    fetchBlob(`/download/${invite.session_id}/audio`)
+      .then((blob: Blob) => {
+        objectUrl = URL.createObjectURL(blob)
         setAudioUrl(objectUrl)
       })
       .catch(() => setAudioUrl(null))

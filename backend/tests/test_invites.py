@@ -1,16 +1,18 @@
 """Tests for recruiter invites, role picker, quota, audio, and access control."""
+import asyncio
 import itertools
 import pytest
 from unittest.mock import patch
 from httpx import AsyncClient, ASGITransport
 from pydantic import ValidationError
+from sqlalchemy import select
 
 from api.main import app
 from api.deps import get_current_user
 from models.schemas import InterviewPlan, InviteCreate
 from db.database import async_session
 from db.crud import create_session, create_invite, get_invite_by_token
-from db.models import User
+from db.models import InterviewSession, User
 
 
 class _StubUser:
@@ -470,3 +472,82 @@ async def test_report_save_generates_real_pdf():
         mock_archive.assert_called_once()
         pdf_bytes = mock_archive.call_args[0][2]
         assert pdf_bytes.startswith(b"%PDF")
+
+
+# --------------------------------------------------- concurrency & validation
+
+
+@pytest.mark.asyncio
+async def test_concurrent_start_binds_only_one_session(monkeypatch):
+    """Two racing starts on the same token must not both create a session.
+
+    The redemption claim is a conditional UPDATE; without it both requests pass
+    the ``candidate_user_id is None`` check and both consume quota.
+    """
+    recruiter = await _make_recruiter()
+    async with async_session() as db:
+        invite = await create_invite(db, recruiter_id=recruiter.id, title="Race", context=None,
+                                     questions=["Q1?", "Q2?"], token="tok-race")
+        token = invite.token
+
+    candidate = await _make_candidate()
+    async with _client() as ac:
+        first, second = await asyncio.gather(
+            ac.post(f"/invite/{token}/start"),
+            ac.post(f"/invite/{token}/start"),
+        )
+
+    codes = sorted([first.status_code, second.status_code])
+    assert codes == [200, 200] or codes == [200, 403], codes
+
+    # The real invariant: at most ONE session may exist for this candidate and
+    # ONE redemption recorded — a check-then-act would let both requests through.
+    async with async_session() as db:
+        stored = await get_invite_by_token(db, token)
+        assert stored.session_id
+        assert stored.candidate_user_id == candidate.id
+
+        owned = (await db.execute(
+            select(InterviewSession).where(InterviewSession.user_id == candidate.id)
+        )).scalars().all()
+        assert len(owned) == 1, f"expected 1 session, got {len(owned)}"
+        assert owned[0].id == stored.session_id
+
+        # Any successful response must reference that same session.
+        for resp in (first, second):
+            if resp.status_code == 200:
+                assert resp.json()["session_id"] == stored.session_id
+
+
+@pytest.mark.asyncio
+async def test_invite_redeem_claim_is_single_use_at_db_level():
+    """`redeem_invite` returns False for a second claim on the same invite."""
+    from db.crud import get_invite_by_id, redeem_invite, release_invite_claim
+    from db.models import InterviewInvite
+
+    recruiter = await _make_recruiter()
+    async with async_session() as db:
+        invite = await create_invite(db, recruiter_id=recruiter.id, title="CAS", context=None,
+                                     questions=["Q1?", "Q2?"], token="tok-cas")
+        invite_id = invite.id
+
+        assert await redeem_invite(db, invite_id, candidate_user_id="cand-a", session_id="sess-a") is True
+        # A second claim (different candidate, same invite) must lose.
+        assert await redeem_invite(db, invite_id, candidate_user_id="cand-b", session_id="sess-b") is False
+
+        stored = await db.get(InterviewInvite, invite_id)
+        assert stored.candidate_user_id == "cand-a"
+        assert stored.session_id == "sess-a"
+
+        # Releasing makes the link reusable again.
+        await release_invite_claim(db, invite_id)
+        await db.refresh(stored)
+        assert stored.candidate_user_id is None and stored.session_id is None and stored.redeemed_at is None
+        assert await redeem_invite(db, invite_id, candidate_user_id="cand-b", session_id="sess-b") is True
+
+
+def test_invite_create_schema_rejects_whitespace_only_title():
+    """`min_length=1` alone accepts "   ", which stores an empty title."""
+    with pytest.raises(ValidationError):
+        InviteCreate(title="   ", questions=["a?", "b?"])
+    assert InviteCreate(title="  Backend Engineer  ", questions=["a?", "b?"]).title == "Backend Engineer"

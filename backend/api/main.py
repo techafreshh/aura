@@ -53,6 +53,7 @@ from db.crud import (
     list_invites_for_recruiter,
     count_redeemed_invites_this_month,
     redeem_invite,
+    release_invite_claim,
     complete_invite_by_session,
 )
 from db.database import async_session, init_db
@@ -84,7 +85,7 @@ def _run_migrations() -> None:
     from alembic import command
     from alembic.config import Config
 
-    from db.database import DB_PATH, _find_missing_columns, _add_missing_user_columns_sqlite
+    from db.database import DB_PATH, Base, _find_missing_columns, _add_missing_user_columns_sqlite
     from db import models  # noqa: F401  (ensures all tables are registered on Base.metadata)
 
     if DB_PATH == ":memory:":
@@ -121,6 +122,13 @@ def _run_migrations() -> None:
 
             sync_engine = sa.create_engine(f"sqlite:///{DB_PATH}")
             try:
+                # Additive tables (a table added to the models since the last
+                # release) are created before the drift check: stamping at head
+                # asserts the migrations ran, so the table must exist, and
+                # init_db()'s create_all would build it moments later anyway.
+                # Without this, a legacy DB missing any new table is refused at
+                # startup instead of being brought up to date.
+                Base.metadata.create_all(sync_engine)
                 with sync_engine.connect() as engine_conn:
                     missing = _find_missing_columns(engine_conn)
             finally:
@@ -790,13 +798,41 @@ async def start_invited_interview(request: Request, token: str, user=Depends(get
             question_bank=json.loads(invite.questions_json),
             job_description=invite.context,
         )
-        session = await create_session(
-            db,
-            user_id=user.id,
-            candidate_name=plan.candidate_name,
-            plan_json=plan.model_dump_json(),
+        # Claim the invite *before* creating the session so the single-use rule is
+        # a compare-and-swap rather than a check-then-act: concurrent starts race
+        # on this UPDATE, and only the winner goes on to create a session.
+        session_id = str(uuid.uuid4())
+        claimed = await redeem_invite(
+            db, invite.id, candidate_user_id=user.id, session_id=session_id
         )
-        await redeem_invite(db, invite, candidate_user_id=user.id, session_id=session.id)
+        if not claimed:
+            # Another request bound this invite first. If it was this same
+            # candidate, hand back their session; otherwise the link is spent.
+            # refresh() rather than a re-query: the session is not expired on
+            # commit, so a re-query would hand back the stale cached row.
+            await db.refresh(invite)
+            if invite.candidate_user_id == user.id and invite.session_id:
+                existing = await get_session(db, invite.session_id)
+                if existing:
+                    return InviteStartResponse(
+                        session_id=existing.id,
+                        plan=InterviewPlan.model_validate_json(existing.plan_json),
+                    )
+            raise HTTPException(status_code=403, detail="This invite has already been used")
+
+        try:
+            session = await create_session(
+                db,
+                user_id=user.id,
+                candidate_name=plan.candidate_name,
+                plan_json=plan.model_dump_json(),
+                session_id=session_id,
+            )
+        except Exception:
+            # Don't strand the invite pointing at a session that was never
+            # written — release the claim so the candidate can try again.
+            await release_invite_claim(db, invite.id)
+            raise
 
     return InviteStartResponse(session_id=session.id, plan=plan)
 

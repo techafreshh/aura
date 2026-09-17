@@ -138,6 +138,19 @@ class InviteCreate(BaseModel):
         description="The questions the AI interviewer must ask (2-5 to bound interview cost).",
     )
 
+    @field_validator("title")
+    @classmethod
+    def _clean_title(cls, value: str) -> str:
+        """Strip and reject whitespace-only titles.
+
+        ``min_length=1`` alone accepts ``"   "``, which the endpoint then strips
+        to an empty title and stores in a non-nullable column.
+        """
+        value = value.strip()
+        if not value:
+            raise ValueError("Title must not be empty.")
+        return value
+
     @field_validator("questions")
     @classmethod
     def _clean_questions(cls, value: List[str]) -> List[str]:

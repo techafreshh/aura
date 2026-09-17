@@ -1,26 +1,31 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { setUserRole } from '@/api/client'
-import { Link } from 'react-router-dom'
 import '@/styles/aura-pre.css'
 
+/**
+ * Role picker and role switcher.
+ *
+ * New users (role ``''``) land here from the OAuth callback and from the
+ * email/password sign-in. Existing users reach it via the "Switch role" link
+ * (``?switch=1``); without that flag they are sent back, so the page cannot be
+ * used to bounce a settled user around the app.
+ */
 export function RolePicker() {
   const { user, setAuth } = useAuth()
   const navigate = useNavigate()
+  const [params] = useSearchParams()
+  const switching = params.get('switch') === '1'
   const [busy, setBusy] = useState<'candidate' | 'recruiter' | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Authenticated users who already picked a role don't belong here
-  if (user && user.role !== '') {
+  // Authenticated users who already picked a role don't belong here — unless
+  // they explicitly asked to switch. Redirect via <Navigate> rather than
+  // navigate(): calling it during render is unsafe under StrictMode.
+  if (user && user.role !== '' && !switching) {
     const returnTo = sessionStorage.getItem('aura_return_to')
-    if (returnTo) {
-      sessionStorage.removeItem('aura_return_to')
-      navigate(returnTo, { replace: true })
-    } else {
-      navigate('/', { replace: true })
-    }
-    return null
+    return <Navigate to={returnTo || '/'} replace />
   }
 
   const choose = async (role: 'candidate' | 'recruiter') => {
@@ -38,15 +43,21 @@ export function RolePicker() {
     }
   }
 
+  const current = user?.role
+
   return (
     <div className="aura-pre-page">
       <div className="page-ambient" aria-hidden="true"></div>
       <div className="grid-mesh" aria-hidden="true"></div>
 
       <main className="container" style={{ maxWidth: 760 }}>
-        <span className="eyebrow"><span className="dot" aria-hidden="true"></span>Welcome to Aura</span>
+        <span className="eyebrow"><span className="dot" aria-hidden="true"></span>{switching ? 'Switch mode' : 'Welcome to Aura'}</span>
         <h1 className="h1">How will you <em>use Aura?</em></h1>
-        <p className="lede">Pick the mode that fits you. You can switch anytime from the profile menu.</p>
+        <p className="lede">
+          {switching
+            ? 'Pick the other mode to switch. You can switch back at any time.'
+            : 'Pick the mode that fits you. You can switch anytime from the profile menu.'}
+        </p>
 
         {error && (
           <div className="error-banner" role="alert" style={{ marginTop: 16 }}>{error}</div>
@@ -62,8 +73,14 @@ export function RolePicker() {
                 job description, and get a structured report with scores and feedback.
               </p>
               <div className="btn-row" style={{ marginTop: 18 }}>
-                <button className="btn btn-primary" disabled={busy !== null} onClick={() => choose('candidate')}>
-                  {busy === 'candidate' ? <><span className="spinner" /> Setting up…</> : "I'm a candidate"}
+                <button
+                  className="btn btn-primary"
+                  disabled={busy !== null || current === 'candidate'}
+                  onClick={() => choose('candidate')}
+                >
+                  {busy === 'candidate'
+                    ? <><span className="spinner" /> Setting up…</>
+                    : current === 'candidate' ? 'Current mode' : "I'm a candidate"}
                 </button>
               </div>
             </div>
@@ -78,8 +95,14 @@ export function RolePicker() {
                 review the PDF report and audio recording when they're done.
               </p>
               <div className="btn-row" style={{ marginTop: 18 }}>
-                <button className="btn btn-primary" disabled={busy !== null} onClick={() => choose('recruiter')}>
-                  {busy === 'recruiter' ? <><span className="spinner" /> Setting up…</> : "I'm a recruiter"}
+                <button
+                  className="btn btn-primary"
+                  disabled={busy !== null || current === 'recruiter'}
+                  onClick={() => choose('recruiter')}
+                >
+                  {busy === 'recruiter'
+                    ? <><span className="spinner" /> Setting up…</>
+                    : current === 'recruiter' ? 'Current mode' : "I'm a recruiter"}
                 </button>
               </div>
             </div>

@@ -69,6 +69,7 @@ export function RecruiterDashboard() {
           <div className="nav-links">
             <Link to="/recruiter" className="active">Recruiter</Link>
             <Link to="/my-interviews">My interviews</Link>
+            {user?.role !== 'admin' && <Link to="/choose-role?switch=1">Switch role</Link>}
           </div>
           <div className="nav-cta">
             {user && (
@@ -151,7 +152,12 @@ export function RecruiterDashboard() {
                     {invites.map(inv => {
                       const rec = recPill(inv.recommendation)
                       const status = statusPill(inv.status === 'cancelled' ? 'pending' : inv.status)
-                      const statusLabel = inv.status === 'cancelled' ? 'Cancelled' : status.text
+                      // A pending invite that already bound a candidate was
+                      // redeemed but never finished — the link is spent, so it
+                      // must not be offered for copying again.
+                      const started = inv.status === 'pending' && !!inv.candidate_user_id
+                      const statusLabel = inv.status === 'cancelled' ? 'Cancelled' : started ? 'Started' : status.text
+                      const statusCls = inv.status === 'cancelled' ? 'pill pill-muted' : started ? 'pill pill-accent' : status.cls
                       return (
                         <tr key={inv.invite_id}>
                           <td style={{ fontWeight: 600 }}>{inv.title}</td>
@@ -163,13 +169,13 @@ export function RecruiterDashboard() {
                             )}
                           </td>
                           <td>
-                            <span className={inv.status === 'cancelled' ? 'pill pill-muted' : status.cls}>
+                            <span className={statusCls}>
                               <span className="dot"></span>{statusLabel}
                             </span>
                           </td>
                           <td className="num">{formatDate(inv.created_at)}</td>
                           <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                            {inv.status === 'pending' && (
+                            {inv.status === 'pending' && !started && (
                               <>
                                 <button className="btn btn-ghost btn-sm" onClick={() => copyLink(inv.token)}>
                                   {copiedToken === inv.token ? 'Copied!' : 'Copy link'}
@@ -177,7 +183,7 @@ export function RecruiterDashboard() {
                                 <button className="btn btn-ghost btn-sm" onClick={() => cancel(inv)}>Cancel</button>
                               </>
                             )}
-                            {inv.status !== 'pending' && inv.invite_id && (
+                            {(inv.status !== 'pending' || started) && inv.invite_id && (
                               <Link to={`/recruiter/invites/${inv.invite_id}`} className="btn btn-ghost btn-sm">
                                 {inv.status === 'completed' ? 'View report' : 'Details'}
                               </Link>

@@ -14,12 +14,21 @@ interface UseRoomRecorderArgs {
   micTrack?: RecorderTrack | null
   /** Agent's remote audio track (from useVoiceAssistant). */
   agentTrack?: RecorderTrack | null
+  /**
+   * Called once with the finished recording when the recorder stops.
+   *
+   * Fired from ``MediaRecorder.onstop``, which is asynchronous — so this is the
+   * reliable place to hand the blob off (e.g. to upload it). Reacting to state
+   * changes instead races the stop, and an unmount-time stop never renders
+   * again, which is why the callback also covers navigating away mid-interview.
+   */
+  onComplete?: (blob: Blob) => void
 }
 
 interface UseRoomRecorderResult {
   recording: boolean
-  /** The completed recording, set once the recorder stops. */
-  blobRef: React.MutableRefObject<Blob | null>
+  /** The finished recording, set when the recorder stops. */
+  blob: Blob | null
   stop: () => void
 }
 
@@ -36,16 +45,21 @@ function extractMediaTrack(track: RecorderTrack | null | undefined): MediaStream
  *
  * Mixes the candidate's mic and the AI interviewer's voice into a single
  * stream via Web Audio and captures it with MediaRecorder — zero per-minute
- * recording cost, unlike LiveKit Egress. The blob is produced on stop();
- * callers upload it (see InterviewAgent).
+ * recording cost, unlike LiveKit Egress. The finished blob is delivered to
+ * ``onComplete`` (and exposed as ``blob``) when the recorder stops; callers
+ * upload it (see InterviewAgent).
  */
-export function useRoomRecorder({ enabled, connected, micTrack, agentTrack }: UseRoomRecorderArgs): UseRoomRecorderResult {
+export function useRoomRecorder({ enabled, connected, micTrack, agentTrack, onComplete }: UseRoomRecorderArgs): UseRoomRecorderResult {
   const recorderRef = useRef<MediaRecorder | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const chunksRef = useRef<BlobPart[]>([])
-  const blobRef = useRef<Blob | null>(null)
   const startedRef = useRef(false)
+  const [blob, setBlob] = useState<Blob | null>(null)
   const [recording, setRecording] = useState(false)
+
+  // Latest-ref so a re-created callback never restarts the recorder effect.
+  const onCompleteRef = useRef(onComplete)
+  useEffect(() => { onCompleteRef.current = onComplete })
 
   useEffect(() => {
     if (!enabled || !connected || startedRef.current) return
@@ -69,7 +83,9 @@ export function useRoomRecorder({ enabled, connected, micTrack, agentTrack }: Us
       const recorder = new MediaRecorder(dest.stream, mime ? { mimeType: mime } : undefined)
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data) }
       recorder.onstop = () => {
-        blobRef.current = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' })
+        const finished = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' })
+        setBlob(finished)
+        onCompleteRef.current?.(finished)
       }
       recorder.start(1000)
       audioCtxRef.current = ctx
@@ -101,5 +117,5 @@ export function useRoomRecorder({ enabled, connected, micTrack, agentTrack }: Us
     audioCtxRef.current?.close().catch(() => {})
   }, [])
 
-  return { recording, blobRef, stop }
+  return { recording, blob, stop }
 }

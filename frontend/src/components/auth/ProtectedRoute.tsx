@@ -27,8 +27,11 @@ export function ProtectedRoute({ children, requireAdmin = false, requireRole }: 
     return <Navigate to="/" replace />
   }
 
-  // Users who have not picked a role yet go through the role picker first
-  if (requireRole && user.role !== requireRole) {
+  // Users who have not picked a role yet go through the role picker first.
+  // Admins are allowed through recruiter-only routes: require_recruiter() on the
+  // backend accepts them, and the nav links admins to /recruiter.
+  const allowed = user.role === requireRole || user.role === 'admin'
+  if (requireRole && !allowed) {
     const target = user.role === '' ? '/choose-role' : '/'
     return <Navigate to={target} replace />
   }
