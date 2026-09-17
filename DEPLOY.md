@@ -10,7 +10,7 @@
 - MinIO instance (for report archival) — requires `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`, plus `MINIO_SECURE=true` when the endpoint uses `https://` (leave `false` for local `minio:9000` over HTTP)
 - **SendByte account** for transactional email (email verification, welcome, password reset) — requires `SENDBYTE_API_KEY`, `SENDBYTE_FROM_EMAIL`
 - **OAuth provider accounts (Google + GitHub)** for user authentication (required after PR #10)
-- A persistent volume or host path mounted at `backend/data/` for the SQLite database
+- A persistent volume or host path mounted at `backend/data/` for the SQLite database — or a `DATABASE_URL` pointing at a server-backed database (Postgres), which takes precedence when set (see [Database](#database))
 
 ## Setup
 
@@ -93,8 +93,9 @@ After the first deploy with PR #10, verify the auth path end-to-end:
 
 ## Database
 
-- **Engine:** SQLite via SQLAlchemy async (`aiosqlite`).
-- **Location:** `backend/data/aura.db` (gitignored). Mount a persistent volume here.
+- **Engine:** server-backed via `DATABASE_URL` (e.g. Postgres through `asyncpg`) when set; otherwise SQLite via SQLAlchemy async (`aiosqlite`).
+- **SQLite location (default):** `backend/data/aura.db` (gitignored). Mount a persistent volume here.
+- **Postgres (optional):** set `DATABASE_URL=postgresql+asyncpg://aura_user:pw@postgres:5432/aura`. The backend runs Alembic migrations against it at startup (`upgrade head` — an empty database builds the full schema, an existing one upgrades in place). Use a dedicated user/database per app so instances stay isolated. The SQLite legacy auto-heal paths don't apply to a server-backed database.
 - **Migrations:** Alembic (`backend/migrations/`), applied automatically at backend startup by the FastAPI lifespan handler in `api/main.py`:
   - DB already tracked by Alembic (`alembic_version` table present) → `upgrade head`.
   - Pre-Alembic DB (tables exist but no `alembic_version` — e.g. a `create_all`-era deploy) → any post-release `users` columns are first added via `ALTER TABLE` (`_add_missing_user_columns` in `db/database.py`), any tables added since the last release are created, then the live schema is compared against `db/models.py` and stamped at head; a schema still missing columns or tables is NOT stamped — startup fails loudly instead of 500ing later with `no such column`. The `oauth_identities` backfill from earlier deploys still runs for those users.
@@ -105,6 +106,46 @@ After the first deploy with PR #10, verify the auth path end-to-end:
   - `users` — `id`, `email` (unique), `name`, `avatar_url`, `provider` (`google` | `github` | `email`), `provider_id`, `role` (`candidate` | `admin`), `password_hash` (null for OAuth-only accounts), `email_verified`, `verification_token_hash` + `verification_token_expires_at`, `reset_token_hash` + `reset_token_expires_at`, `created_at`, `last_login_at`. Only SHA-256 hashes of email tokens are stored — raw tokens exist solely inside email links.
   - `interview_sessions` — `id`, `user_id` (FK), `candidate_name`, `plan_json`, `report_json`, `transcript_json`, `status` (`pending` | `in_progress` | `completed`), `created_at`, `completed_at`.
   - `interview_invites` — recruiter-created invites: `id`, `recruiter_id`, `title`, `context`, `questions_json`, `token` (invite URL), `candidate_user_id`, `session_id`, `redeemed_at`, `status` (`pending` | `completed` | `cancelled`), `created_at`, `completed_at`. Created by the `add_interview_invites_table` revision on first startup after upgrading.
+
+### SQLite → Postgres cutover
+
+To move an existing deployment off the SQLite file onto a shared Postgres instance:
+
+1. **Prepare the target.** On the Postgres server, create a dedicated user and database (adjust names/permissions to your conventions):
+
+   ```sql
+   CREATE USER aura_user WITH PASSWORD 'strong-password';
+   CREATE DATABASE aura OWNER aura_user;
+   ```
+
+2. **Configure.** Add to `.env` (the backend and any one-off migration run must both see it):
+
+   ```
+   DATABASE_URL=postgresql+asyncpg://aura_user:strong-password@<postgres-host>:5432/aura
+   ```
+
+   The `<postgres-host>` must be resolvable from the backend container — e.g. the Postgres container's service name if it shares the same Docker network (the backend is on `web_gateway` via `docker-compose.override.yml`).
+
+3. **Brief downtime window.** Stop the writers so the source file stops changing (the frontend can stay up):
+
+   ```bash
+   docker compose stop backend worker
+   ```
+
+4. **Copy the data.** Run the one-shot migration script inside the backend container (it upgrades the target schema to Alembic head, copies every table in FK order, coerces datetimes to UTC-aware, is idempotent via `ON CONFLICT DO NOTHING`, and verifies row counts):
+
+   ```bash
+   docker compose run --rm backend \
+       python scripts/migrate_sqlite_to_postgres.py --source /app/data/aura.db
+   ```
+
+5. **Restart.** `docker compose up -d` — the backend starts, migrates (no-op at head), and serves from Postgres.
+
+6. **Verify.** `curl https://yourdomain.com/api/health`, sign in with an existing account, and confirm old sessions appear under "My interviews". Watch `docker compose logs backend` for the startup migration line.
+
+**Rollback:** remove `DATABASE_URL` from `.env` and restart — the SQLite file is only ever read during the copy, so it remains a fully valid database taken at the moment you stopped the stack. Any data written to Postgres after cutover is not copied back automatically.
+
+For local verification before touching production, run the same script against a scratch database name on the target Postgres instance first.
 
 ## Architecture
 

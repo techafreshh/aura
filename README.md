@@ -104,6 +104,7 @@ The app is served on `127.0.0.1:3000`. Point a reverse proxy (Caddy/nginx) with 
 | `DOMAIN` | Production domain (CORS) |
 | `ENVIRONMENT` | `development` or `production` (default: `development`) |
 | `DATABASE_PATH` | SQLite file location (unset default: `/app/data/aura.db` in the container, on the compose volume; `backend/data/aura.db` for local runs) |
+| `DATABASE_URL` | Optional server-backed database (e.g. `postgresql+asyncpg://aura_user:pw@postgres:5432/aura`); wins over `DATABASE_PATH` when set. Migrations run at startup; see DEPLOY.md for the SQLite→Postgres cutover |
 | `BACKEND_URL` | Worker-to-backend URL (e.g. `http://backend:8000` in compose) |
 | `MINIO_ENDPOINT` | MinIO endpoint for report archival |
 | `MINIO_ACCESS_KEY` | MinIO access key |

@@ -10,20 +10,51 @@ from utils.config import get_environment
 
 logger = logging.getLogger("database")
 
+
+def resolve_db_url(database_url: str, database_path: str) -> str:
+    """Return the SQLAlchemy URL for the given raw env values (pure, for tests).
+
+    ``DATABASE_URL`` wins when set — any dialect, e.g.
+    ``postgresql+asyncpg://aura_user:pw@postgres:5432/aura`` — pointing the app
+    at a server-backed database. Unset, the app keeps its zero-config SQLite
+    file (or a shared in-memory DB when ``DATABASE_PATH`` is ``:memory:``), so
+    local dev and the test suite need no database server.
+    """
+    if database_url:
+        return database_url
+    if database_path == ":memory:":
+        return "sqlite+aiosqlite:///:memory:"
+    return f"sqlite+aiosqlite:///{database_path}"
+
+
+def is_sqlite_url(url: str) -> bool:
+    return url.startswith("sqlite")
+
+
+# Explicit server-backed URL (Postgres, …). When set it takes over completely;
+# unset keeps the SQLite file so existing deployments are unaffected.
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 DB_PATH = os.getenv("DATABASE_PATH", str(Path(__file__).parent.parent / "data" / "aura.db"))
-if DB_PATH != ":memory:":
+DB_URL = resolve_db_url(DATABASE_URL, DB_PATH)
+IS_SQLITE = is_sqlite_url(DB_URL)
+
+if not DATABASE_URL and DB_PATH != ":memory:":
     Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
 
-if DB_PATH == ":memory:":
+if DB_URL == "sqlite+aiosqlite:///:memory:":
     # Share a single connection so all sessions see the same in-memory DB.
     engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
+        DB_URL,
         echo=False,
         poolclass=StaticPool,
         connect_args={"check_same_thread": False},
     )
 else:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{DB_PATH}", echo=False)
+    # pool_pre_ping revalidates pooled connections before use, so a database
+    # container restarting doesn't leave the pool holding dead connections
+    # that 500 the next request. Pointless for the file/in-memory SQLite
+    # engines, which never go stale.
+    engine = create_async_engine(DB_URL, echo=False, pool_pre_ping=not IS_SQLITE)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
@@ -91,19 +122,23 @@ async def init_db() -> dict[str, list[str]]:
         await conn.run_sync(Base.metadata.create_all)
         # Safety net for databases predating the ALTER-based migrations, and
         # for tests that exercise init_db directly without running Alembic.
-        await _add_missing_user_columns(conn)
-        # Backfill identities for databases created before multi-provider login.
-        await conn.execute(text("""
-            INSERT OR IGNORE INTO oauth_identities
-                (id, user_id, provider, provider_id, email, created_at)
-            SELECT lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' ||
-                   substr(lower(hex(randomblob(2))), 2) || '-' ||
-                   substr('89ab', abs(random()) % 4 + 1, 1) ||
-                   substr(lower(hex(randomblob(2))), 2) || '-' || lower(hex(randomblob(6))),
-                   id, provider, provider_id, lower(trim(email)), created_at
-            FROM users
-            WHERE provider IS NOT NULL AND provider_id IS NOT NULL
-        """))
+        # PRAGMA is SQLite-only — Postgres databases are always built through
+        # Alembic, so the legacy-column heal has nothing to do there.
+        if IS_SQLITE:
+            await _add_missing_user_columns(conn)
+            # Backfill identities for databases created before multi-provider
+            # login. INSERT OR IGNORE / randomblob() are SQLite syntax.
+            await conn.execute(text("""
+                INSERT OR IGNORE INTO oauth_identities
+                    (id, user_id, provider, provider_id, email, created_at)
+                SELECT lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' ||
+                       substr(lower(hex(randomblob(2))), 2) || '-' ||
+                       substr('89ab', abs(random()) % 4 + 1, 1) ||
+                       substr(lower(hex(randomblob(2))), 2) || '-' || lower(hex(randomblob(6))),
+                       id, provider, provider_id, lower(trim(email)), created_at
+                FROM users
+                WHERE provider IS NOT NULL AND provider_id IS NOT NULL
+            """))
 
     async with engine.connect() as conn:
         missing = await conn.run_sync(_find_missing_columns)
@@ -112,8 +147,9 @@ async def init_db() -> dict[str, list[str]]:
         details = "; ".join(f"{table}: {', '.join(cols)}" for table, cols in missing.items())
         message = (
             f"Database schema drift detected — missing columns: {details}. "
-            f"For dev, delete {DB_PATH} and restart to recreate the schema; "
-            "for prod, apply a manual ALTER TABLE matching db/models.py."
+            f"For SQLite, delete {DB_PATH} and restart to recreate the schema; "
+            "for server-backed databases, apply a manual ALTER TABLE matching "
+            "db/models.py."
         )
         # In production a drifted schema would 500 on every request with an
         # opaque "no such column"; failing at startup is the louder, earlier
