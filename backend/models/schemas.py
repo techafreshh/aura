@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field, field_validator
 from typing import List, Literal, Optional
 from datetime import datetime
 import json
+import re
 
 class InterviewPlan(BaseModel):
     candidate_name: str = Field(description="The name of the candidate extracted from the resume.")
@@ -206,6 +207,8 @@ class InvitePreview(BaseModel):
     context: Optional[str] = None
     questions: List[str]
     recruiter_name: str
+    # Company branding from the recruiter's profile, when set
+    recruiter_company: Optional[str] = None
 
 
 class InviteStartResponse(BaseModel):
@@ -213,3 +216,255 @@ class InviteStartResponse(BaseModel):
 
     session_id: str
     plan: InterviewPlan
+
+
+# --- Candidate / recruiter profiles ------------------------------------------
+
+
+class ExperienceEntry(BaseModel):
+    """One position on the candidate profile, job-board style."""
+
+    title: str = Field(min_length=1, max_length=120, description="Job title.")
+    company: str = Field(min_length=1, max_length=120, description="Company or employer.")
+    start: str = Field(default="", max_length=40, description="e.g. '2022-03' or 'Spring 2022'.")
+    end: str = Field(default="", max_length=40, description="Empty or 'Present' for current roles.")
+    description: str = Field(default="", max_length=2000)
+
+    @field_validator("title", "company")
+    @classmethod
+    def _clean_required(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Title and company must not be empty.")
+        return value
+
+    @field_validator("start", "end", "description")
+    @classmethod
+    def _clean_free(cls, value: str) -> str:
+        return value.strip()
+
+
+class EducationEntry(BaseModel):
+    """One school/program on the candidate profile."""
+
+    school: str = Field(min_length=1, max_length=160)
+    degree: str = Field(default="", max_length=160)
+    field: str = Field(default="", max_length=160)
+    start: str = Field(default="", max_length=40)
+    end: str = Field(default="", max_length=40)
+
+    @field_validator("school")
+    @classmethod
+    def _clean_school(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("School must not be empty.")
+        return value
+
+    @field_validator("degree", "field", "start", "end")
+    @classmethod
+    def _clean_free(cls, value: str) -> str:
+        return value.strip()
+
+
+def _clean_str_list(max_items: int, max_len: int, what: str):
+    """Validator factory for string-list fields (skills)."""
+
+    def _validate(value: List[str]) -> List[str]:
+        cleaned = []
+        for item in value:
+            if not isinstance(item, str):
+                raise ValueError(f"Each {what} entry must be a string.")
+            item = item.strip()
+            if not item:
+                continue
+            if len(item) > max_len:
+                raise ValueError(f"Each {what} entry must be {max_len} characters or fewer.")
+            cleaned.append(item)
+        if len(cleaned) > max_items:
+            raise ValueError(f"At most {max_items} {what} allowed.")
+        return cleaned
+
+    return _validate
+
+
+def _clean_entry_list(model_cls, max_items: int, what: str):
+    """Validator factory for entry-list fields (experience, education)."""
+
+    def _validate(value) -> list:
+        if len(value) > max_items:
+            raise ValueError(f"At most {max_items} {what} allowed.")
+        return list(value)
+
+    return _validate
+
+
+class CandidateProfileIn(BaseModel):
+    """Updatable candidate profile fields (PUT /profile/candidate body)."""
+
+    headline: str = Field(default="", max_length=200)
+    location: str = Field(default="", max_length=120)
+    summary: str = Field(default="", max_length=4000)
+    skills: List[str] = Field(default_factory=list, max_length=30)
+    experience: List[ExperienceEntry] = Field(default_factory=list, max_length=15)
+    education: List[EducationEntry] = Field(default_factory=list, max_length=15)
+    linkedin_url: Optional[str] = Field(default=None, max_length=512)
+    github_url: Optional[str] = Field(default=None, max_length=512)
+    portfolio_url: Optional[str] = Field(default=None, max_length=512)
+
+    @field_validator("headline", "location", "summary")
+    @classmethod
+    def _clean_free_text(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("skills")
+    @classmethod
+    def _clean_skills(cls, value: List[str]) -> List[str]:
+        return _clean_str_list(30, 60, "skills")(value)
+
+    @field_validator("experience")
+    @classmethod
+    def _clean_experience(cls, value: List[ExperienceEntry]) -> List[ExperienceEntry]:
+        return _clean_entry_list(ExperienceEntry, 15, "experience entries")(value)
+
+    @field_validator("education")
+    @classmethod
+    def _clean_education(cls, value: List[EducationEntry]) -> List[EducationEntry]:
+        return _clean_entry_list(EducationEntry, 15, "education entries")(value)
+
+    @field_validator("linkedin_url", "github_url", "portfolio_url")
+    @classmethod
+    def _clean_url(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            return None
+        if not re.match(r"^https?://", value, flags=re.IGNORECASE):
+            raise ValueError("Links must start with http:// or https://")
+        return value[:512]
+
+
+class CandidateProfileOut(BaseModel):
+    """Candidate profile as returned by GET /profile/candidate."""
+
+    headline: str = ""
+    location: str = ""
+    summary: str = ""
+    skills: List[str] = Field(default_factory=list)
+    experience: List[ExperienceEntry] = Field(default_factory=list)
+    education: List[EducationEntry] = Field(default_factory=list)
+    linkedin_url: Optional[str] = None
+    github_url: Optional[str] = None
+    portfolio_url: Optional[str] = None
+    resume_stored: bool = False
+    resume_uploaded_at: Optional[datetime] = None
+
+    @classmethod
+    def from_row(cls, row) -> "CandidateProfileOut":
+        """Build from a CandidateProfile ORM row (JSON columns parsed here)."""
+
+        def _load(name: str) -> list:
+            raw = getattr(row, name, None)
+            if not raw:
+                return []
+            try:
+                return json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                return []
+
+        return cls(
+            headline=row.headline,
+            location=row.location,
+            summary=row.summary,
+            skills=_load("skills_json"),
+            experience=[ExperienceEntry.model_validate(e) for e in _load("experience_json") if isinstance(e, dict)],
+            education=[EducationEntry.model_validate(e) for e in _load("education_json") if isinstance(e, dict)],
+            linkedin_url=row.linkedin_url,
+            github_url=row.github_url,
+            portfolio_url=row.portfolio_url,
+            resume_stored=row.resume_stored,
+            resume_uploaded_at=row.resume_uploaded_at,
+        )
+
+
+class RecruiterProfileIn(BaseModel):
+    """Updatable recruiter profile fields (PUT /profile/recruiter body)."""
+
+    company_name: str = Field(default="", max_length=200)
+    job_title: str = Field(default="", max_length=120)
+    company_website: Optional[str] = Field(default=None, max_length=512)
+    company_location: str = Field(default="", max_length=120)
+
+    @field_validator("company_name", "job_title", "company_location")
+    @classmethod
+    def _clean_free_text(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("company_website")
+    @classmethod
+    def _clean_url(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            return None
+        if not re.match(r"^https?://", value, flags=re.IGNORECASE):
+            raise ValueError("The website must start with http:// or https://")
+        return value[:512]
+
+
+class RecruiterProfileOut(BaseModel):
+    """Recruiter profile as returned by GET /profile/recruiter."""
+
+    company_name: str = ""
+    job_title: str = ""
+    company_website: Optional[str] = None
+    company_location: str = ""
+
+
+class ParsedResumeProfile(BaseModel):
+    """Structured profile fields extracted from a resume by the profile parser agent.
+
+    Only the fields the model could find are set; the frontend prefills the
+    form's empty fields with these and leaves filled fields untouched.
+    """
+
+    headline: Optional[str] = Field(default=None, max_length=200)
+    location: Optional[str] = Field(default=None, max_length=120)
+    summary: Optional[str] = Field(default=None, max_length=4000)
+    skills: List[str] = Field(default_factory=list)
+    experience: List[ExperienceEntry] = Field(default_factory=list)
+    education: List[EducationEntry] = Field(default_factory=list)
+    linkedin_url: Optional[str] = Field(default=None, max_length=512)
+    github_url: Optional[str] = Field(default=None, max_length=512)
+    portfolio_url: Optional[str] = Field(default=None, max_length=512)
+
+    @field_validator("skills")
+    @classmethod
+    def _clean_skills(cls, value: List[str]) -> List[str]:
+        return _clean_str_list(30, 60, "skills")(value)
+
+    @field_validator("experience")
+    @classmethod
+    def _clean_experience(cls, value: List[ExperienceEntry]) -> List[ExperienceEntry]:
+        return _clean_entry_list(ExperienceEntry, 15, "experience entries")(value)
+
+    @field_validator("education")
+    @classmethod
+    def _clean_education(cls, value: List[EducationEntry]) -> List[EducationEntry]:
+        return _clean_entry_list(EducationEntry, 15, "education entries")(value)
+
+
+class ResumeParseResponse(BaseModel):
+    """Result of POST /profile/candidate/resume: parsed fields for review, not saved."""
+
+    parsed: ParsedResumeProfile
+    resume_stored: bool = True
+
+
+class CandidateUserOut(BaseModel):
+    """Public-ish identity of a user, joined where a profile references someone."""
+
+    id: str
+    name: str

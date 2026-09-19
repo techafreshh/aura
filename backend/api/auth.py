@@ -176,19 +176,14 @@ def _user_payload(user: User) -> dict:
         "email": user.email,
         "name": user.name,
         "role": user.role,
+        "is_recruiter": bool(getattr(user, "is_recruiter", False)),
         "avatar_url": user.avatar_url,
     }
 
 
 @router.get("/me")
 async def get_me(user=Depends(get_current_user)):
-    return {
-        "id": user.id,
-        "email": user.email,
-        "name": user.name,
-        "role": user.role,
-        "avatar_url": user.avatar_url,
-    }
+    return _user_payload(user)
 
 
 @router.post("/logout")
@@ -383,11 +378,13 @@ class RoleChoice(BaseModel):
 @router.post("/role")
 @limiter.limit("20/hour")
 async def set_role(request: Request, choice: RoleChoice, user=Depends(get_current_user)):
-    """Role picker: new users choose candidate or recruiter; switchable later.
+    """Role picker: choose the starting mode (candidate or recruiter).
 
-    Admins keep their role (and cannot demote themselves via this endpoint).
-    Returns a fresh JWT plus the updated user since the token carries a
-    (read-only) role claim the frontend relies on.
+    Choosing ``recruiter`` permanently grants the ``is_recruiter`` capability
+    (dual roles — picking ``candidate`` later never revokes it; active mode is
+    a frontend-only concern). Admins keep their role and cannot demote
+    themselves via this endpoint. Returns a fresh JWT plus the updated user
+    since the token carries a (read-only) role claim the frontend relies on.
     """
     if isinstance(user, _WorkerUser):
         raise HTTPException(403, "Workers cannot set a role")

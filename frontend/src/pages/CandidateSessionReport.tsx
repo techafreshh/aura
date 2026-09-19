@@ -2,12 +2,10 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { downloadArtifact, getMySessionDetail, type SessionDetail, type TranscriptEntryRead } from '@/api/client'
 import { ReportView } from '@/components/interview/ReportView'
-import { useAuth } from '@/contexts/AuthContext'
-import { initials } from '@/lib/dashboard-utils'
+import { AppHeader } from '@/components/layout/AppHeader'
 import '@/styles/aura-dashboard.css'
 
 export function CandidateSessionReport() {
-  const { user, logout } = useAuth()
   const navigate = useNavigate()
   const { sessionId } = useParams<{ sessionId: string }>()
   const [data, setData] = useState<SessionDetail | null>(null)
@@ -48,14 +46,7 @@ export function CandidateSessionReport() {
       <div className="aura-dashboard-page">
         <div className="page-ambient" aria-hidden="true"></div>
         <div className="grid-mesh" aria-hidden="true"></div>
-        <nav className="nav">
-          <div className="nav-row">
-            <Link to="/" className="brand"><span className="mark" aria-hidden="true"></span><span>Aura</span></Link>
-            <div className="nav-cta">
-              <Link to="/my-interviews" className="btn btn-ghost btn-sm">My interviews</Link>
-            </div>
-          </div>
-        </nav>
+        <AppHeader links={false} />
         <main className="container">
           <div className="page-head">
             <span className="page-eyebrow"><span className="lit">Report</span></span>
@@ -75,19 +66,7 @@ export function CandidateSessionReport() {
       <div className="aura-dashboard-page">
         <div className="page-ambient" aria-hidden="true"></div>
         <div className="grid-mesh" aria-hidden="true"></div>
-        <nav className="nav">
-          <div className="nav-row">
-            <Link to="/" className="brand"><span className="mark" aria-hidden="true"></span><span>Aura</span></Link>
-            <div className="nav-cta">
-              {user && (
-                <span className="user-chip">
-                  <span className="avatar" aria-hidden="true">{initials(user.name || user.email)}</span>
-                  {user.name || user.email}
-                </span>
-              )}
-            </div>
-          </div>
-        </nav>
+        <AppHeader links={false} />
         <main className="container">
           <div className="loading-state" role="status" aria-live="polite">
             <div className="spinner" aria-hidden="true"></div>
@@ -103,26 +82,7 @@ export function CandidateSessionReport() {
       <div className="page-ambient" aria-hidden="true"></div>
       <div className="grid-mesh" aria-hidden="true"></div>
 
-      <nav className="nav" aria-label="Primary">
-        <div className="nav-row">
-          <Link to="/" className="brand" aria-label="Aura home">
-            <span className="mark" aria-hidden="true"></span><span>Aura</span>
-          </Link>
-          <div className="nav-links">
-            <Link to="/interview">New interview</Link>
-            <Link to="/my-interviews" className="active">My interviews</Link>
-          </div>
-          <div className="nav-cta">
-            {user && (
-              <span className="user-chip">
-                <span className="avatar" aria-hidden="true">{initials(user.name || user.email)}</span>
-                {user.name || user.email}
-              </span>
-            )}
-            <button className="btn btn-ghost btn-sm" onClick={logout}>Sign out</button>
-          </div>
-        </div>
-      </nav>
+      <AppHeader active="my-interviews" />
 
       <main className="container">
         <Link to="/my-interviews" className="back-link">

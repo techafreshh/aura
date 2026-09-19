@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { getRecruiterInvite, downloadFile, fetchBlob, type InviteDetail as InviteDetailData } from '@/api/client'
-import { useAuth } from '@/contexts/AuthContext'
+import { AppHeader } from '@/components/layout/AppHeader'
 import { statusPill, formatDateTime, initials } from '@/lib/dashboard-utils'
 import { ReportView } from '@/components/interview/ReportView'
 import '@/styles/aura-dashboard.css'
 
 export function InviteDetail() {
   const { inviteId } = useParams<{ inviteId: string }>()
-  const { user, logout } = useAuth()
   const [invite, setInvite] = useState<InviteDetailData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
@@ -127,25 +126,7 @@ export function InviteDetail() {
       <div className="page-ambient" aria-hidden="true"></div>
       <div className="grid-mesh" aria-hidden="true"></div>
 
-      <nav className="nav" aria-label="Primary">
-        <div className="nav-row">
-          <Link to="/" className="brand" aria-label="Aura home">
-            <span className="mark" aria-hidden="true"></span><span>Aura</span>
-          </Link>
-          <div className="nav-links">
-            <Link to="/recruiter">Recruiter</Link>
-          </div>
-          <div className="nav-cta">
-            {user && (
-              <span className="user-chip">
-                <span className="avatar" aria-hidden="true">{initials(user.name || user.email)}</span>
-                {user.name || user.email}
-              </span>
-            )}
-            <button className="btn btn-ghost btn-sm" onClick={logout}>Sign out</button>
-          </div>
-        </div>
-      </nav>
+      <AppHeader active="recruiter" />
 
       <main className="container" style={{ maxWidth: 860 }}>
         <header className="page-head">

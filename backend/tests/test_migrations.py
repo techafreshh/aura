@@ -73,3 +73,37 @@ def test_upgrade_head_is_idempotent(migrated_db_path):
     command.upgrade(cfg, "head")  # must not raise
 
     assert "oauth_identities" in _read_tables(migrated_db_path)
+
+
+def test_recruiter_flag_backfilled_from_role(tmp_path, monkeypatch):
+    """Users who had role='recruiter' before the flag existed keep access."""
+    import sqlite3
+
+    from alembic import command
+    from alembic.config import Config
+
+    db_path = str(tmp_path / "backfill-test.db")
+    monkeypatch.setattr(db_database, "DB_PATH", db_path)
+    cfg = Config(str(BACKEND_ROOT / "alembic.ini"))
+
+    # Build the schema as it was before the flag, then add pre-flag users.
+    command.upgrade(cfg, "b8e2802f0d1b")
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO users (id, email, name, provider, provider_id, role, created_at, last_login_at) "
+            "VALUES ('u1', 'a@x.com', 'A', 'google', 'p1', 'recruiter', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),"
+            "('u2', 'b@x.com', 'B', 'google', 'p2', 'candidate', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    command.upgrade(cfg, "head")
+
+    conn = sqlite3.connect(db_path)
+    try:
+        flags = dict(conn.execute("SELECT id, is_recruiter FROM users"))
+    finally:
+        conn.close()
+    assert flags == {"u1": 1, "u2": 0}

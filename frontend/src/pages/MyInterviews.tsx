@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { listMySessions, type SessionSummary } from '@/api/client'
-import { useAuth } from '@/contexts/AuthContext'
-import { recPill, statusPill, formatDate, initials } from '@/lib/dashboard-utils'
+import { AppHeader } from '@/components/layout/AppHeader'
+import { recPill, statusPill, formatDate } from '@/lib/dashboard-utils'
 import '@/styles/aura-dashboard.css'
 
 export function MyInterviews() {
-  const { user, logout } = useAuth()
   const navigate = useNavigate()
   const [sessions, setSessions] = useState<SessionSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -43,29 +42,7 @@ export function MyInterviews() {
       <div className="page-ambient" aria-hidden="true"></div>
       <div className="grid-mesh" aria-hidden="true"></div>
 
-      <nav className="nav" aria-label="Primary">
-        <div className="nav-row">
-          <Link to="/" className="brand" aria-label="Aura home">
-            <span className="mark" aria-hidden="true"></span><span>Aura</span>
-          </Link>
-          <div className="nav-links">
-            <Link to="/interview">New interview</Link>
-            <Link to="/my-interviews" className="active">My interviews</Link>
-            {(user?.role === 'recruiter' || user?.role === 'admin') && <Link to="/recruiter">Recruiter</Link>}
-            {user?.role === 'admin' && <Link to="/admin">Admin dashboard</Link>}
-            {user && user.role !== 'admin' && <Link to="/choose-role?switch=1">Switch role</Link>}
-          </div>
-          <div className="nav-cta">
-            {user && (
-              <span className="user-chip">
-                <span className="avatar" aria-hidden="true">{initials(user.name || user.email)}</span>
-                {user.name || user.email}
-              </span>
-            )}
-            <button className="btn btn-ghost btn-sm" onClick={logout}>Sign out</button>
-          </div>
-        </div>
-      </nav>
+      <AppHeader active="my-interviews" />
 
       <main className="container">
         <header className="page-head">

@@ -167,11 +167,12 @@ def get_reasoning_model(agent: str) -> str:
     """Resolve the model string for a Pydantic AI reasoning agent.
 
     The per-agent var (``PARSER_MODEL`` / ``EVALUATOR_MODEL`` /
-    ``REPORTER_MODEL``) wins over the shared ``REASONING_MODEL``, which falls
-    back to the built-in default. Empty or whitespace-only values count as
-    unset so a commented-out line in .env degrades gracefully. The string is
-    not validated here — an unsupported provider prefix fails loudly when the
-    agent is constructed, i.e. at process boot.
+    ``REPORTER_MODEL`` / ``PROFILE_MODEL``) wins over the shared
+    ``REASONING_MODEL``, which falls back to the built-in default. Empty or
+    whitespace-only values count as unset so a commented-out line in .env
+    degrades gracefully. The string is not validated here — an unsupported
+    provider prefix fails loudly when the agent is constructed, i.e. at
+    process boot.
     """
     per_agent = os.getenv(f"{agent.upper()}_MODEL", "").strip()
     if per_agent:
@@ -195,4 +196,5 @@ def get_voice_llm_model() -> str:
 PARSER_MODEL: str = get_reasoning_model("parser")
 EVALUATOR_MODEL: str = get_reasoning_model("evaluator")
 REPORTER_MODEL: str = get_reasoning_model("reporter")
+PROFILE_MODEL: str = get_reasoning_model("profile")
 LIVEKIT_LLM_MODEL: str = get_voice_llm_model()

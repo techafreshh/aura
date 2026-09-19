@@ -5,12 +5,14 @@ import { setUserRole } from '@/api/client'
 import '@/styles/aura-pre.css'
 
 /**
- * Role picker and role switcher.
+ * Starting-mode picker (first login) and mode switch via ``?switch=1``.
  *
  * New users (role ``''``) land here from the OAuth callback and from the
- * email/password sign-in. Existing users reach it via the "Switch role" link
- * (``?switch=1``); without that flag they are sent back, so the page cannot be
- * used to bounce a settled user around the app.
+ * email/password sign-in. Existing users reach it via ``?switch=1``; without
+ * that flag they are sent back, so the page cannot be used to bounce a
+ * settled user around the app. Picking "recruiter" permanently grants the
+ * recruiter capability; the header's mode switcher handles everyday toggling
+ * without this API call.
  */
 export function RolePicker() {
   const { user, setAuth } = useAuth()
@@ -55,8 +57,8 @@ export function RolePicker() {
         <h1 className="h1">How will you <em>use Aura?</em></h1>
         <p className="lede">
           {switching
-            ? 'Pick the other mode to switch. You can switch back at any time.'
-            : 'Pick the mode that fits you. You can switch anytime from the profile menu.'}
+            ? 'Pick a mode. Switching back takes one click from the header.'
+            : 'Pick a starting point — you can use both sides anytime from the header. Choosing Recruiter grants recruiter access for good.'}
         </p>
 
         {error && (

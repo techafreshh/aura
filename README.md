@@ -39,6 +39,14 @@ completes a voice interview answering exactly those questions — no resume pars
 When they finish, the recruiter gets the PDF report and the **audio recording** of the
 conversation. Monthly interviews per recruiter are capped (`RECRUITER_MONTHLY_LIMIT`) to
 control AI spend.
+
+**One account, both roles:** any account can act as a candidate, and becoming a recruiter is
+a one-time grant (role picker or the candidate/recruiter switcher in the header — no approval
+flow). Each side has its own profile: candidates get a job-board style profile
+(headline, skills, experience, education, links) that can be **autofilled by uploading their
+resume**, and recruiters list their company so candidates see who they're interviewing with.
+A candidate with a saved resume can start practice interviews in one click without
+re-uploading.
 - **Worker** — LiveKit VoicePipelineAgent with Pydantic AI reasoning agents
 - **AI Models** — GPT-4o-mini (voice), Gemini 2.0 Flash via OpenRouter (reasoning), Deepgram Nova-3 (STT), Fish Audio S2.1 Pro Free (TTS). Every model is env-configurable — see the Environment Variables table.
 
@@ -89,9 +97,9 @@ The app is served on `127.0.0.1:3000`. Point a reverse proxy (Caddy/nginx) with 
 
 | Variable | Purpose |
 |----------|---------|
-| `OPENROUTER_API_KEY` | Pydantic AI agents (parser, evaluator, reporter) |
-| `REASONING_MODEL` | Model for all three reasoning agents, pydantic-ai format (default: `openrouter:google/gemini-2.0-flash-001`) |
-| `PARSER_MODEL` / `EVALUATOR_MODEL` / `REPORTER_MODEL` | Per-agent override of `REASONING_MODEL` (same format; optional) |
+| `OPENROUTER_API_KEY` | Pydantic AI agents (parser, evaluator, reporter, profile parser) |
+| `REASONING_MODEL` | Model for all reasoning agents, pydantic-ai format (default: `openrouter:google/gemini-2.0-flash-001`) |
+| `PARSER_MODEL` / `EVALUATOR_MODEL` / `REPORTER_MODEL` / `PROFILE_MODEL` | Per-agent override of `REASONING_MODEL` (same format; optional) |
 | `OPENAI_API_KEY` | LiveKit plugins (STT, LLM, TTS) |
 | `LIVEKIT_LLM_MODEL` | Voice-pipeline LLM, the interviewer's conversation model (default: `openai/gpt-4o-mini`). Prefix with `openrouter:` (e.g. `openrouter:google/gemini-2.0-flash-001`) to bill tokens to your OpenRouter credits instead of LiveKit Inference |
 | `LIVEKIT_STT_MODEL` | STT model (default: `deepgram/nova-3`). Prefix with `openrouter:` to transcribe via OpenRouter's OpenAI-compatible endpoint (billed to OpenRouter; batch per VAD utterance, no streaming interim results, language auto-detected) |
@@ -130,10 +138,16 @@ The app is served on `127.0.0.1:3000`. Point a reverse proxy (Caddy/nginx) with 
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/upload` | Upload PDF resume, returns interview plan |
+| `POST` | `/profile/candidate/interview` | Start a practice interview from the resume already on the candidate profile |
 | `GET` | `/plan/{session_id}` | Retrieve interview plan |
 | `GET` | `/token?session_id=` | Generate LiveKit room token (owner or admin only) |
 | `POST` | `/report/{session_id}` | Save interview report |
 | `GET` | `/report/{session_id}` | Retrieve interview report |
+| `GET` | `/profile/candidate` | The caller's candidate profile (job-board fields) |
+| `PUT` | `/profile/candidate` | Create/update the candidate profile |
+| `POST` | `/profile/candidate/resume` | Upload + store resume PDF, returns parsed profile fields for review (nothing auto-saved) |
+| `GET` | `/profile/recruiter` | The caller's recruiter profile (company fields) |
+| `PUT` | `/profile/recruiter` | Create/update the recruiter profile (recruiter access required) |
 | `GET` | `/sessions/mine` | List authenticated user's sessions |
 | `GET` | `/admin/sessions` | List all sessions (admin only, supports `?status=` filter) |
 | `GET` | `/admin/sessions/{session_id}/detail` | Full session detail with transcript (admin only) |

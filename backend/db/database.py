@@ -80,9 +80,9 @@ def _find_missing_columns(sync_conn) -> dict[str, list[str]]:
 
 # Columns added to ``users`` after the original release, as
 # (column name, column DDL) pairs. Kept in sync with db.models.User and with
-# the ``add_email_password_auth_columns`` Alembic migration. New databases get
-# them through Alembic; pre-Alembic databases get them via ALTER TABLE in
-# ``init_db`` (and in the startup auto-heal before stamping).
+# the ``add_email_password_auth_columns`` / profile-flag Alembic migrations.
+# New databases get them through Alembic; pre-Alembic databases get them via
+# ALTER TABLE in ``init_db`` (and in the startup auto-heal before stamping).
 _USER_COLUMNS_ADDED = [
     ("password_hash", "VARCHAR(255)"),
     ("email_verified", "BOOLEAN DEFAULT 0 NOT NULL"),
@@ -90,6 +90,7 @@ _USER_COLUMNS_ADDED = [
     ("verification_token_expires_at", "DATETIME"),
     ("reset_token_hash", "VARCHAR(64)"),
     ("reset_token_expires_at", "DATETIME"),
+    ("is_recruiter", "BOOLEAN DEFAULT 0 NOT NULL"),
 ]
 
 
@@ -126,6 +127,12 @@ async def init_db() -> dict[str, list[str]]:
         # Alembic, so the legacy-column heal has nothing to do there.
         if IS_SQLITE:
             await _add_missing_user_columns(conn)
+            # Legacy rows that chose the recruiter role pre-flag keep their
+            # capability. (Server-backed databases get the same backfill from
+            # the Alembic revision.)
+            await conn.execute(text(
+                "UPDATE users SET is_recruiter = 1 WHERE role = 'recruiter' AND NOT is_recruiter"
+            ))
             # Backfill identities for databases created before multi-provider
             # login. INSERT OR IGNORE / randomblob() are SQLite syntax.
             await conn.execute(text("""
