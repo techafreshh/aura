@@ -57,7 +57,9 @@ async def test_interview_completed_span_is_emitted(monkeypatch):
         return _Result()
 
     monkeypatch.setattr(worker.reporter_agent, "run", _fake_run)
-    monkeypatch.setattr(worker.otel_trace, "get_tracer", lambda name: fake_tracer)
+    # **kw: opentelemetry.trace is a shared module; livekit's internals call
+    # get_tracer(name, tracer_provider=...) on the same object.
+    monkeypatch.setattr(worker.otel_trace, "get_tracer", lambda name, **kw: fake_tracer)
 
     class _FakeAsyncClient:
         async def __aenter__(self):
@@ -127,6 +129,11 @@ async def test_interview_session_root_span_is_emitted(monkeypatch):
                 text = ""
             return _R()
 
+    # Patch the worker's httpx reference (not the shared httpx module): with a
+    # root .env present, constructing the openrouter voice LLM builds an OpenAI
+    # client with a real httpx client, and a globally-faked one breaks it.
+    from types import SimpleNamespace
+
     class _FakeCtx:
         def __init__(self):
             class _Room:
@@ -161,8 +168,8 @@ async def test_interview_session_root_span_is_emitted(monkeypatch):
         def say(self, *a, **kw):
             self.say_calls.append((a, kw))
 
-    monkeypatch.setattr(worker.httpx, "AsyncClient", _FakeAsyncClient)
-    monkeypatch.setattr(worker.otel_trace, "get_tracer", lambda name: fake_tracer)
+    monkeypatch.setattr(worker, "httpx", SimpleNamespace(AsyncClient=_FakeAsyncClient))
+    monkeypatch.setattr(worker.otel_trace, "get_tracer", lambda name, **kw: fake_tracer)
     monkeypatch.setattr(worker, "_run_interview", lambda *a, **kw: _async_noop())
     monkeypatch.setattr(worker.voice, "AgentSession", _FakeAgentSession)
     monkeypatch.setattr(worker.silero.VAD, "load", staticmethod(lambda *a, **kw: None))
