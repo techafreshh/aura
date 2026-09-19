@@ -1,15 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { listAdminSessions, type SessionSummary } from '@/api/client'
-import { useAuth } from '@/contexts/AuthContext'
-import { recPill, statusPill, formatDate, initials } from '@/lib/dashboard-utils'
+import { AppHeader } from '@/components/layout/AppHeader'
+import { recPill, statusPill, formatDate } from '@/lib/dashboard-utils'
 import '@/styles/aura-dashboard.css'
 
 type StatusFilter = 'all' | 'pending' | 'in_progress' | 'completed'
 type SortKey = 'created_at' | 'candidate_name' | 'overall_score' | 'status'
 
 export function AdminDashboard() {
-  const { user, logout } = useAuth()
   const navigate = useNavigate()
   const [sessions, setSessions] = useState<SessionSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -110,26 +109,7 @@ export function AdminDashboard() {
       <div className="page-ambient" aria-hidden="true"></div>
       <div className="grid-mesh" aria-hidden="true"></div>
 
-      <nav className="nav" aria-label="Primary">
-        <div className="nav-row">
-          <Link to="/" className="brand" aria-label="Aura home">
-            <span className="mark" aria-hidden="true"></span><span>Aura</span>
-          </Link>
-          <div className="nav-links">
-            <Link to="/my-interviews">My interviews</Link>
-            <Link to="/admin" className="active">Admin</Link>
-          </div>
-          <div className="nav-cta">
-            {user && (
-              <span className="user-chip">
-                <span className="avatar" aria-hidden="true">{initials(user.name || user.email)}</span>
-                {user.name || user.email}
-              </span>
-            )}
-            <button className="btn btn-ghost btn-sm" onClick={logout}>Sign out</button>
-          </div>
-        </div>
-      </nav>
+      <AppHeader active="admin" />
 
       <main className="container">
         <header className="page-head">

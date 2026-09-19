@@ -1,4 +1,5 @@
 import uuid
+import sqlalchemy as sa
 from datetime import datetime, timezone
 from sqlalchemy import String, Text, DateTime, ForeignKey, Index, UniqueConstraint, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
@@ -23,8 +24,13 @@ class User(Base):
     provider: Mapped[str] = mapped_column(String(20))  # "google" | "github" | "email"
     provider_id: Mapped[str] = mapped_column(String(255))
     # Empty until the user picks "candidate" or "recruiter" on the role picker;
-    # "admin" is granted via ADMIN_EMAIL promotion on login.
+    # "admin" is granted via ADMIN_EMAIL promotion on login. Kept as the
+    # last-picked starting mode; the durable capability is is_recruiter below.
     role: Mapped[str] = mapped_column(String(20), default="")
+    # One-way recruiter capability grant (Upwork-style dual roles): once set,
+    # picking the candidate role later never un-grants it. role stays a plain
+    # string so every existing check keeps its meaning.
+    is_recruiter: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa.false())
     # Email/password auth (None for OAuth-only accounts). OAuth emails are
     # provider-verified, so those accounts are trusted immediately.
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -89,3 +95,47 @@ class InterviewInvite(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending")  # "pending" | "completed" | "cancelled"
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CandidateProfile(Base):
+    """Job-board style profile for the candidate side of an account.
+
+    One row per user (1:1, created lazily on first save). List-shaped fields
+    (skills, experience, education) follow the codebase's Text-JSON column
+    pattern and are parsed with Pydantic at the API edge.
+    """
+
+    __tablename__ = "candidate_profiles"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), unique=True, index=True)
+    headline: Mapped[str] = mapped_column(String(200), default="")
+    location: Mapped[str] = mapped_column(String(120), default="")
+    summary: Mapped[str] = mapped_column(Text, default="")
+    skills_json: Mapped[str] = mapped_column(Text, default="[]")
+    experience_json: Mapped[str] = mapped_column(Text, default="[]")
+    education_json: Mapped[str] = mapped_column(Text, default="[]")
+    linkedin_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    github_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    portfolio_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # The resume PDF lives in MinIO (resumes/{user_id}/resume.pdf); this row
+    # only records that one is attached, for "start interview from profile".
+    resume_stored: Mapped[bool] = mapped_column(Boolean, default=False)
+    resume_uploaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+
+class RecruiterProfile(Base):
+    """Recruiter-side profile: branding shown to candidates on invites."""
+
+    __tablename__ = "recruiter_profiles"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), unique=True, index=True)
+    company_name: Mapped[str] = mapped_column(String(200), default="")
+    job_title: Mapped[str] = mapped_column(String(120), default="")
+    company_website: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    company_location: Mapped[str] = mapped_column(String(120), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)

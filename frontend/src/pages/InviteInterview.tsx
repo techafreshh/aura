@@ -158,7 +158,11 @@ export function InviteInterview() {
               <div className="avatar">{initials(preview.recruiter_name || 'R')}</div>
               <div>
                 <h2 className="name" style={{ margin: 0 }}>{preview.title}</h2>
-                <div className="sub">Voice interview with {preview.recruiter_name} · {preview.questions.length} questions</div>
+                <div className="sub">
+                  Voice interview with {preview.recruiter_name}
+                  {preview.recruiter_company ? ` · ${preview.recruiter_company}` : ''}
+                  {' '}· {preview.questions.length} questions
+                </div>
               </div>
             </div>
 

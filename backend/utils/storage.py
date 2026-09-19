@@ -110,3 +110,49 @@ def archive_audio(session_id: str, candidate_name: str, audio_bytes: bytes, ext:
         logger.info("Archived audio %s to MinIO", session_id)
     except Exception as e:
         logger.error("Failed to archive audio %s: %s", session_id, e)
+
+
+RESUME_BUCKET = "resumes"
+
+
+def _resume_object(user_id: str) -> str:
+    return f"{user_id}/resume.pdf"
+
+
+def archive_resume(user_id: str, pdf_bytes: bytes) -> bool:
+    """Store the candidate's resume PDF. Returns True on success.
+
+    Unlike report artifacts, a resume is keyed by user (not session) and is
+    overwritten on every re-upload. Failures are logged, never raised — the
+    resume-parse endpoint treats storage loss as non-fatal because the parsed
+    fields still come back from the agent.
+    """
+    try:
+        client = _get_client()
+        _ensure_bucket(client, RESUME_BUCKET)
+        client.put_object(
+            RESUME_BUCKET,
+            _resume_object(user_id),
+            io.BytesIO(pdf_bytes),
+            len(pdf_bytes),
+            content_type="application/pdf",
+        )
+        logger.info("Archived resume for user %s to MinIO", user_id)
+        return True
+    except Exception as e:
+        logger.error("Failed to archive resume for user %s: %s", user_id, e)
+        return False
+
+
+def get_resume(user_id: str) -> bytes | None:
+    """Fetch the candidate's stored resume PDF, or None."""
+    try:
+        client = _get_client()
+        response = client.get_object(RESUME_BUCKET, _resume_object(user_id))
+        data = response.read()
+        response.close()
+        response.release_conn()
+        return data
+    except Exception as e:
+        logger.info("No stored resume for user %s: %s", user_id, e)
+        return None

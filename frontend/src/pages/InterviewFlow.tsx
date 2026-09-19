@@ -1,8 +1,8 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import axios from 'axios'
 import { useInterview } from '@/hooks/use-interview'
-import { uploadResume, getToken } from '@/api/client'
+import { uploadResume, getToken, getPlan, startInterviewFromProfile, getCandidateProfile } from '@/api/client'
 import { InterviewAgent } from '@/components/voice/InterviewAgent'
 import { ReportView } from '@/components/interview/ReportView'
 import { Toaster } from '@/components/ui/toaster'
@@ -15,10 +15,58 @@ export function InterviewFlow() {
   const [file, setFile] = useState<File | null>(null)
   const [jobDescription, setJobDescription] = useState('')
   const [isUploading, setIsUploading] = useState(false)
+  const [hasResume, setHasResume] = useState(false)
+  const [isStartingFromProfile, setIsStartingFromProfile] = useState(false)
   const [token, setToken] = useState<string | null>(null)
   const [isConnecting, setIsConnecting] = useState(false)
   const { toast } = useToast()
   const { user, logout } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // Deep link: /interview?session=<id> skips the upload step and shows the
+  // plan (used by "start interview from profile" and returning users).
+  useEffect(() => {
+    const existing = searchParams.get('session')
+    if (!existing) return
+    setSearchParams({}, { replace: true })
+    getPlan(existing)
+      .then(({ plan: fetched }) => {
+        startPreview({ session_id: existing, plan_summary: fetched })
+        toast({ title: 'Interview plan loaded', description: `Plan ready for ${fetched.candidate_name}.` })
+      })
+      .catch(() => {
+        toast({ title: 'Could not load that session', description: 'Start a new interview instead.', variant: 'destructive' })
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Offer "use my saved resume" once a profile resume is on file.
+  useEffect(() => {
+    if (step !== 'UPLOAD') return
+    let cancelled = false
+    getCandidateProfile()
+      .then(p => { if (!cancelled) setHasResume(p.resume_stored) })
+      .catch(() => { /* profiles are optional here; the upload flow still works */ })
+    return () => { cancelled = true }
+  }, [step])
+
+  const handleUseProfileResume = async () => {
+    setIsStartingFromProfile(true)
+    try {
+      const data = await startInterviewFromProfile()
+      startPreview(data)
+      toast({ title: 'Resume parsed', description: `Plan ready for ${data.plan_summary.candidate_name}.` })
+    } catch (error) {
+      const msg = axios.isAxiosError(error) && error.response?.status === 429
+        ? 'Rate limit reached. Please try again later.'
+        : axios.isAxiosError(error) && error.response?.status === 404
+          ? 'No resume on your profile yet — upload one below or add it on your profile page.'
+          : 'Could not prepare the interview from your saved resume.'
+      toast({ title: 'Not possible', description: msg, variant: 'destructive' })
+    } finally {
+      setIsStartingFromProfile(false)
+    }
+  }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) setFile(e.target.files[0])
@@ -133,6 +181,11 @@ export function InterviewFlow() {
                 <button className="btn btn-primary" disabled={!file || isUploading} onClick={handleUpload}>
                   {isUploading ? <><span className="spinner" /> Parsing resume…</> : "Prepare Interview"}
                 </button>
+                {hasResume && (
+                  <button className="btn btn-ghost" disabled={isUploading || isStartingFromProfile} onClick={handleUseProfileResume}>
+                    {isStartingFromProfile ? <><span className="spinner" /> Preparing…</> : 'Use my saved resume'}
+                  </button>
+                )}
               </div>
             </div>
           </article>

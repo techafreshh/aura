@@ -35,9 +35,10 @@ from models.schemas import (
     InviteStartResponse,
     RecruiterInvitesResponse,
 )
-from api.deps import get_current_user, require_admin
+from api.deps import get_current_user, require_admin, require_recruiter
 from api.rate_limit import limiter
 from api.auth import router as auth_router
+from api.profiles import router as profiles_router
 from db.crud import (
     create_session,
     get_session,
@@ -55,6 +56,7 @@ from db.crud import (
     redeem_invite,
     release_invite_claim,
     complete_invite_by_session,
+    get_recruiter_profile,
     CLAIMED,
     ALREADY_CLAIMED,
     CANCELLED,
@@ -185,6 +187,7 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.include_router(auth_router)
+app.include_router(profiles_router)
 
 # Add CORS middleware
 if ENVIRONMENT == "production":
@@ -216,25 +219,9 @@ app.add_middleware(
 MAX_PDF_SIZE = 10 * 1024 * 1024  # 10 MB
 MAX_AUDIO_SIZE = 25 * 1024 * 1024  # 25 MB (~25 min of opus audio)
 
-
-def sanitize_name(name: str) -> str:
-    if not isinstance(name, str):
-        return "Unknown"
-    name = re.sub(r'<(script|style|iframe|object|embed)[^>]*>.*?</\1>', '', name, flags=re.IGNORECASE | re.DOTALL)
-    name = re.sub(r'<(script|style|iframe|object|embed)[^>]*>.*', '', name, flags=re.IGNORECASE | re.DOTALL)
-    name = re.sub(r'<[^>]+>', '', name)
-    name = name[:100]
-    name = re.sub(r'\s+', ' ', name).strip()
-    return name or "Unknown"
-
-
-def sanitize_text(text: str, max_length: int) -> str:
-    """Strip HTML tags and cap length for free-text inputs (job descriptions, etc.)."""
-    if not isinstance(text, str):
-        return ""
-    text = re.sub(r'<[^>]+>', '', text)
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text[:max_length]
+# Free-text sanitizers moved to utils.text so the profiles router can share
+# them; re-exported here for backwards-compatible imports (tests, callers).
+from utils.text import sanitize_name, sanitize_text  # noqa: E402, F401
 
 
 async def can_access_session(session, user) -> bool:
@@ -246,11 +233,6 @@ async def can_access_session(session, user) -> bool:
     async with async_session() as db:
         invite = await get_invite_by_session(db, session.id)
     return bool(invite and invite.recruiter_id == user.id)
-
-
-def require_recruiter(user) -> None:
-    if getattr(user, "role", None) not in ("recruiter", "admin"):
-        raise HTTPException(status_code=403, detail="Recruiter access required")
 
 
 @app.post("/upload", response_model=UploadResponse)
@@ -777,12 +759,14 @@ async def get_invite_preview(request: Request, token: str, user=Depends(get_curr
         if invite.candidate_user_id and invite.candidate_user_id != user.id:
             raise HTTPException(status_code=403, detail="This invite has already been used")
         recruiter = await get_user_by_id(db, invite.recruiter_id)
+        recruiter_profile = await get_recruiter_profile(db, invite.recruiter_id)
 
     return InvitePreview(
         title=invite.title,
         context=invite.context,
         questions=json.loads(invite.questions_json),
         recruiter_name=(recruiter.name if recruiter else "") or "Your recruiter",
+        recruiter_company=(recruiter_profile.company_name if recruiter_profile else "") or None,
     )
 
 

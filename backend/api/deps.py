@@ -45,3 +45,18 @@ async def get_current_user(request: Request) -> User | _WorkerUser:
 def require_admin(user) -> None:
     if getattr(user, "role", None) != "admin":
         raise HTTPException(403, "Admin access required")
+
+
+def require_recruiter(user) -> None:
+    """Recruiter capability gate.
+
+    Dual roles: a user qualifies via the one-way ``is_recruiter`` grant, the
+    legacy ``role == "recruiter"`` string (rows created before the flag
+    existed, and test stubs), or being an admin. Lives next to
+    ``require_admin`` so both the invites endpoints and the profiles router
+    can share it without a circular import through ``api.main``.
+    """
+    role = getattr(user, "role", None)
+    if role == "admin" or role == "recruiter" or getattr(user, "is_recruiter", False):
+        return
+    raise HTTPException(403, "Recruiter access required")

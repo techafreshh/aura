@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { createInvite, type InviteOut } from '@/api/client'
-import { useAuth } from '@/contexts/AuthContext'
-import { initials } from '@/lib/dashboard-utils'
+import { AppHeader } from '@/components/layout/AppHeader'
 import { Toaster } from '@/components/ui/toaster'
 import { useToast } from '@/hooks/use-toast'
 import axios from 'axios'
@@ -12,7 +11,6 @@ const MIN_QUESTIONS = 2
 const MAX_QUESTIONS = 5
 
 export function InviteBuilder() {
-  const { user, logout } = useAuth()
   const { toast } = useToast()
   const [title, setTitle] = useState('')
   const [context, setContext] = useState('')
@@ -76,16 +74,7 @@ export function InviteBuilder() {
         <div className="page-ambient" aria-hidden="true"></div>
         <div className="grid-mesh" aria-hidden="true"></div>
 
-        <nav className="nav" aria-label="Primary">
-          <div className="nav-row">
-            <Link to="/" className="brand" aria-label="Aura home">
-              <span className="mark" aria-hidden="true"></span><span>Aura</span>
-            </Link>
-            <div className="nav-links">
-              <Link to="/recruiter">Recruiter</Link>
-            </div>
-          </div>
-        </nav>
+        <AppHeader active="recruiter" />
 
         <main className="container" style={{ maxWidth: 760 }}>
           <span className="eyebrow"><span className="dot" aria-hidden="true"></span>Interview created</span>
@@ -131,24 +120,7 @@ export function InviteBuilder() {
       <div className="page-ambient" aria-hidden="true"></div>
       <div className="grid-mesh" aria-hidden="true"></div>
 
-      <nav className="nav" aria-label="Primary">
-        <div className="nav-row">
-          <Link to="/" className="brand" aria-label="Aura home">
-            <span className="mark" aria-hidden="true"></span><span>Aura</span>
-          </Link>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            {user && (
-              <span className="user-chip">
-                <span className="avatar" aria-hidden="true">{initials(user.name || user.email)}</span>
-                {user.name || user.email}
-              </span>
-            )}
-            <button className="btn btn-ghost" onClick={logout} style={{ height: 32, padding: '0 14px', flex: 'none', fontSize: 13 }}>
-              Sign out
-            </button>
-          </div>
-        </div>
-      </nav>
+      <AppHeader active="recruiter" />
 
       <main className="container">
         <span className="eyebrow"><span className="dot" aria-hidden="true"></span>New interview</span>

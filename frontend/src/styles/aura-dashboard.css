@@ -158,3 +158,9 @@
 
 .aura-dashboard-page .back-link { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; padding: 6px 10px; border-radius: 8px; transition: color .15s, background .15s; }
 .aura-dashboard-page .back-link:hover { color: var(--fg-2); background: rgba(255,255,255,0.04); }
+
+/* Candidate / recruiter mode switcher (AppHeader) */
+.nav-mode { display: inline-flex; align-items: center; padding: 3px; background: rgba(255,255,255,0.02); border: 1px solid var(--border, rgba(255,255,255,0.08)); border-radius: 8px; }
+.nav-mode button { height: 28px; padding: 0 12px; border-radius: 6px; font-size: 12px; color: var(--muted, #a1a1aa); font-weight: 500; transition: color .15s, background .15s; }
+.nav-mode button:hover { color: var(--fg-2, #e4e4e7); }
+.nav-mode button.active { background: var(--accent, #6366f1); color: white; }

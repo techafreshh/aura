@@ -2,12 +2,11 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { getAdminSessionDetail, type SessionDetail as SessionDetailData, type TranscriptEntryRead } from '@/api/client'
 import { ReportView } from '@/components/interview/ReportView'
-import { useAuth } from '@/contexts/AuthContext'
-import { statusPill, formatDateTime, formatDuration, initials } from '@/lib/dashboard-utils'
+import { AppHeader } from '@/components/layout/AppHeader'
+import { statusPill, formatDateTime, formatDuration } from '@/lib/dashboard-utils'
 import '@/styles/aura-dashboard.css'
 
 export function SessionDetail() {
-  const { user, logout } = useAuth()
   const navigate = useNavigate()
   const { sessionId } = useParams<{ sessionId: string }>()
   const [data, setData] = useState<SessionDetailData | null>(null)
@@ -46,14 +45,7 @@ export function SessionDetail() {
       <div className="aura-dashboard-page">
         <div className="page-ambient" aria-hidden="true"></div>
         <div className="grid-mesh" aria-hidden="true"></div>
-        <nav className="nav">
-          <div className="nav-row">
-            <Link to="/" className="brand"><span className="mark" aria-hidden="true"></span><span>Aura</span></Link>
-            <div className="nav-cta">
-              <Link to="/admin" className="btn btn-ghost btn-sm">Back to dashboard</Link>
-            </div>
-          </div>
-        </nav>
+        <AppHeader links={false} />
         <main className="container">
           <div className="page-head">
             <span className="page-eyebrow"><span className="lit">Admin</span>· Session</span>
@@ -73,11 +65,7 @@ export function SessionDetail() {
       <div className="aura-dashboard-page">
         <div className="page-ambient" aria-hidden="true"></div>
         <div className="grid-mesh" aria-hidden="true"></div>
-        <nav className="nav">
-          <div className="nav-row">
-            <Link to="/" className="brand"><span className="mark" aria-hidden="true"></span><span>Aura</span></Link>
-          </div>
-        </nav>
+        <AppHeader links={false} />
         <main className="container">
           <div className="loading-state" role="status" aria-live="polite">
             <div className="spinner" aria-hidden="true"></div>
@@ -97,26 +85,7 @@ export function SessionDetail() {
       <div className="page-ambient" aria-hidden="true"></div>
       <div className="grid-mesh" aria-hidden="true"></div>
 
-      <nav className="nav" aria-label="Primary">
-        <div className="nav-row">
-          <Link to="/" className="brand" aria-label="Aura home">
-            <span className="mark" aria-hidden="true"></span><span>Aura</span>
-          </Link>
-          <div className="nav-links">
-            <Link to="/my-interviews">My interviews</Link>
-            <Link to="/admin" className="active">Admin</Link>
-          </div>
-          <div className="nav-cta">
-            {user && (
-              <span className="user-chip">
-                <span className="avatar" aria-hidden="true">{initials(user.name || user.email)}</span>
-                {user.name || user.email}
-              </span>
-            )}
-            <button className="btn btn-ghost btn-sm" onClick={logout}>Sign out</button>
-          </div>
-        </div>
-      </nav>
+      <AppHeader active="admin" />
 
       <main className="container">
         <Link to="/admin" className="back-link">
