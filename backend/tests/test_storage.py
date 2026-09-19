@@ -27,6 +27,39 @@ def test_generate_report_pdf_valid():
     assert len(pdf) > 100
 
 
+def test_generate_report_pdf_handles_empty_fields():
+    """Degenerate reports (no grades, no bullets, huge summary) still render."""
+    degenerate = FinalReport(
+        candidate_name="Edge Case",
+        overall_score=0,
+        section_grades=[],
+        strengths=[],
+        weaknesses=[],
+        recommendation="No Hire",
+        summary="word " * 400,
+    )
+    pdf = generate_report_pdf(degenerate)
+    assert pdf[:4] == b"%PDF"
+
+
+def test_generate_report_pdf_wraps_long_section_comments():
+    """Long LLM comments must wrap in Paragraphs, not overflow the page frame."""
+    dense = FinalReport(
+        candidate_name="Dense",
+        overall_score=95,
+        section_grades=[
+            SectionGrade(section_name="S" * 60, score=10, comments="detail " * 200)
+            for _ in range(10)
+        ],
+        strengths=["s" * 300] * 8,
+        weaknesses=["w" * 300] * 8,
+        recommendation="Strong Hire",
+        summary="ok",
+    )
+    pdf = generate_report_pdf(dense)
+    assert pdf[:4] == b"%PDF"
+
+
 @patch("utils.storage.Minio")
 def test_archive_report_calls_put_object(mock_minio_cls):
     mock_client = MagicMock()
