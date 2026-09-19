@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from livekit.api import AccessToken, VideoGrants
+from livekit.api import AccessToken, VideoGrants, LiveKitAPI, DeleteRoomRequest
 from langfuse import propagate_attributes
 from agent.parser import agent
 from utils.pdf_parser import extract_text_from_pdf
@@ -900,3 +900,37 @@ async def upload_interview_audio(
 
     background_tasks.add_task(archive_audio, session_id, session.candidate_name, audio_bytes, ext)
     return {"status": "success"}
+
+
+@app.post("/rooms/{session_id}/close")
+async def close_room(session_id: str, user=Depends(get_current_user)):
+    """Delete the LiveKit room, disconnecting every participant.
+
+    The agent calls this (via POST with WORKER_API_KEY) after it has finished
+    the goodbye and saved the final report, so an interview the agent ends —
+    or the candidate ends from the in-room button, or the 10-minute cap —
+    always tears the room down. Without it, a room whose agent has stopped
+    would strand the candidate in a silent session with a running timer.
+    """
+    if getattr(user, "role", None) != "worker":
+        raise HTTPException(status_code=403, detail="Worker access required")
+
+    async with async_session() as db:
+        session = await get_session(db, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    url = os.getenv("LIVEKIT_URL")
+    api_key = os.getenv("LIVEKIT_API_KEY")
+    api_secret = os.getenv("LIVEKIT_API_SECRET")
+    if not (url and api_key and api_secret):
+        raise HTTPException(status_code=500, detail="LiveKit credentials are not configured on the server.")
+
+    try:
+        async with LiveKitAPI(url, api_key, api_secret) as lkapi:
+            await lkapi.room.delete_room(DeleteRoomRequest(room=session_id))
+    except Exception as exc:
+        logger.error(f"Failed to close LiveKit room {session_id}: {exc}")
+        raise HTTPException(status_code=502, detail=f"Failed to close room: {exc}")
+
+    return {"status": "closed"}
