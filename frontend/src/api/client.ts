@@ -205,6 +205,8 @@ export interface InviteOut {
   status: 'pending' | 'completed' | 'cancelled';
   created_at: string;
   completed_at: string | null;
+  // When the link stops being redeemable; null = no expiry (legacy invites).
+  expires_at: string | null;
   candidate_user_id: string | null;
   session_id: string | null;
   candidate_name: string | null;
@@ -228,6 +230,7 @@ export interface InvitePreview {
   context: string | null;
   questions: string[];
   recruiter_name: string;
+  expires_at: string | null;
 }
 
 export interface InviteStartResponse {
@@ -239,6 +242,8 @@ export interface InviteCreatePayload {
   title: string;
   context?: string;
   questions: string[];
+  /** Hours the link stays redeemable (1–720). Omitted = the API's 24h default. */
+  expires_in_hours?: number;
 }
 
 export const createInvite = async (payload: InviteCreatePayload): Promise<InviteOut> => {

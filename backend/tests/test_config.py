@@ -165,3 +165,21 @@ def test_voice_llm_model_blank_treated_as_unset(clear_model_env, monkeypatch):
 
 def test_resolved_voice_llm_model_at_import_matches_getter():
     assert config.LIVEKIT_LLM_MODEL == config.get_voice_llm_model()
+
+
+def test_default_invite_expiry_hours_env_override(monkeypatch):
+    """DEFAULT_INVITE_EXPIRY_HOURS reads its env var, falling back to 24."""
+    monkeypatch.setenv("DEFAULT_INVITE_EXPIRY_HOURS", "48")
+    assert config.get_default_invite_expiry_hours() == 48
+
+
+def test_default_invite_expiry_hours_malformed_falls_back(monkeypatch):
+    """A malformed or non-positive value falls back to 24, like the quota var."""
+    for bad in ("not-a-number", "0", "-3"):
+        monkeypatch.setenv("DEFAULT_INVITE_EXPIRY_HOURS", bad)
+        assert config.get_default_invite_expiry_hours() == 24
+
+
+def test_default_invite_expiry_hours_default_when_unset(monkeypatch):
+    monkeypatch.delenv("DEFAULT_INVITE_EXPIRY_HOURS", raising=False)
+    assert config.get_default_invite_expiry_hours() == 24

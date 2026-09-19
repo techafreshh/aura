@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { InterviewAgent } from '@/components/voice/InterviewAgent'
 import { Toaster } from '@/components/ui/toaster'
 import { useToast } from '@/hooks/use-toast'
-import { initials } from '@/lib/dashboard-utils'
+import { initials, formatDateTime, isExpired } from '@/lib/dashboard-utils'
 import axios from 'axios'
 import '@/styles/aura-pre.css'
 
@@ -175,6 +175,14 @@ export function InviteInterview() {
             <ol style={{ margin: '10px 0 0', paddingLeft: 20, lineHeight: 2 }}>
               {preview.questions.map((q, i) => <li key={i}>{q}</li>)}
             </ol>
+
+            {preview.expires_at && (
+              <p style={{ marginTop: 12, fontSize: 12, opacity: isExpired(preview.expires_at) ? 0.85 : 0.6 }}>
+                {isExpired(preview.expires_at)
+                  ? 'This link has expired — ask your recruiter for a fresh one.'
+                  : `This link expires ${formatDateTime(preview.expires_at)}.`}
+              </p>
+            )}
 
             <div className="btn-row" style={{ marginTop: 22 }}>
               <button className="btn btn-primary" onClick={begin} disabled={starting}>

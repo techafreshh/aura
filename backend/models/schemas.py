@@ -137,6 +137,15 @@ class InviteCreate(BaseModel):
         max_length=5,
         description="The questions the AI interviewer must ask (2-5 to bound interview cost).",
     )
+    expires_in_hours: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=720,
+        description=(
+            "How long the invite link stays redeemable, in hours (1-720, i.e. up "
+            "to 30 days). Omitted means the 24-hour default from the API."
+        ),
+    )
 
     @field_validator("title")
     @classmethod
@@ -178,6 +187,7 @@ class InviteOut(BaseModel):
     status: str
     created_at: datetime
     completed_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
     candidate_user_id: Optional[str] = None
     session_id: Optional[str] = None
     # Fields joined from the linked interview session, if any
@@ -206,6 +216,8 @@ class InvitePreview(BaseModel):
     context: Optional[str] = None
     questions: List[str]
     recruiter_name: str
+    # When the link stops working, so candidates know they shouldn't wait.
+    expires_at: Optional[datetime] = None
 
 
 class InviteStartResponse(BaseModel):

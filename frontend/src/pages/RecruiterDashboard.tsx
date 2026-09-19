@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { listRecruiterInvites, cancelInvite, type InviteOut } from '@/api/client'
 import { useAuth } from '@/contexts/AuthContext'
-import { recPill, statusPill, formatDate, initials } from '@/lib/dashboard-utils'
+import { recPill, statusPill, formatDate, initials, isExpired } from '@/lib/dashboard-utils'
 import '@/styles/aura-dashboard.css'
 
 export function RecruiterDashboard() {
@@ -145,6 +145,7 @@ export function RecruiterDashboard() {
                       <th scope="col">Score</th>
                       <th scope="col">Status</th>
                       <th scope="col">Created</th>
+                      <th scope="col">Expires</th>
                       <th scope="col" style={{ textAlign: 'right' }}>Actions</th>
                     </tr>
                   </thead>
@@ -156,8 +157,11 @@ export function RecruiterDashboard() {
                       // redeemed but never finished — the link is spent, so it
                       // must not be offered for copying again.
                       const started = inv.status === 'pending' && !!inv.candidate_user_id
-                      const statusLabel = inv.status === 'cancelled' ? 'Cancelled' : started ? 'Started' : status.text
-                      const statusCls = inv.status === 'cancelled' ? 'pill pill-muted' : started ? 'pill pill-accent' : status.cls
+                      // Same for a pending invite whose expiry window passed:
+                      // the server rejects starts with 410, so hide Copy link.
+                      const expired = inv.status === 'pending' && !started && isExpired(inv.expires_at)
+                      const statusLabel = inv.status === 'cancelled' ? 'Cancelled' : started ? 'Started' : expired ? 'Expired' : status.text
+                      const statusCls = inv.status === 'cancelled' || expired ? 'pill pill-muted' : started ? 'pill pill-accent' : status.cls
                       return (
                         <tr key={inv.invite_id}>
                           <td style={{ fontWeight: 600 }}>{inv.title}</td>
@@ -174,8 +178,9 @@ export function RecruiterDashboard() {
                             </span>
                           </td>
                           <td className="num">{formatDate(inv.created_at)}</td>
+                          <td className="num">{inv.expires_at ? formatDate(inv.expires_at) : <span className="muted">—</span>}</td>
                           <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                            {inv.status === 'pending' && !started && (
+                            {inv.status === 'pending' && !started && !expired && (
                               <>
                                 <button className="btn btn-ghost btn-sm" onClick={() => copyLink(inv.token)}>
                                   {copiedToken === inv.token ? 'Copied!' : 'Copy link'}
@@ -183,7 +188,10 @@ export function RecruiterDashboard() {
                                 <button className="btn btn-ghost btn-sm" onClick={() => cancel(inv)}>Cancel</button>
                               </>
                             )}
-                            {(inv.status !== 'pending' || started) && inv.invite_id && (
+                            {expired && (
+                              <button className="btn btn-ghost btn-sm" onClick={() => cancel(inv)}>Cancel</button>
+                            )}
+                            {(inv.status !== 'pending' || started || expired) && inv.invite_id && (
                               <Link to={`/recruiter/invites/${inv.invite_id}`} className="btn btn-ghost btn-sm">
                                 {inv.status === 'completed' ? 'View report' : 'Details'}
                               </Link>

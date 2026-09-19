@@ -42,6 +42,11 @@ export const formatDateTime = (iso: string | null) => {
   })
 }
 
+/** True when an invite link's expiry has passed (null expiry never expires). */
+export const isExpired = (expiresAt: string | null) =>
+  !!expiresAt && new Date(expiresAt).getTime() <= Date.now()
+
+
 /** Format seconds into a human-readable duration string. */
 export const formatDuration = (secs: number | null | undefined) => {
   if (secs == null) return '—'
