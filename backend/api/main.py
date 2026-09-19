@@ -36,6 +36,7 @@ from models.schemas import (
     RecruiterInvitesResponse,
 )
 from api.deps import get_current_user, require_admin
+from api.error_handlers import register_error_handlers
 from api.rate_limit import limiter
 from api.auth import router as auth_router
 from db.crud import (
@@ -183,6 +184,7 @@ app = FastAPI(title="AI Interviewer API", lifespan=lifespan)
 setup_langfuse()
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+register_error_handlers(app)
 
 app.include_router(auth_router)
 
@@ -307,11 +309,11 @@ async def upload_resume(
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        print(f"UPLOAD ERROR: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+    except Exception:
+        # Full traceback goes to the error log (and Sentry via the global
+        # handler); the client only sees the generic message.
+        logger.exception("Resume upload failed")
+        raise
 
 
 @app.get("/plan/{session_id}")
@@ -374,8 +376,9 @@ async def get_token(
             .to_jwt()
         )
         return {"token": token}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate token: {str(e)}")
+    except Exception:
+        logger.exception("Failed to generate LiveKit token for session %s", session_id)
+        raise HTTPException(status_code=500, detail="Failed to generate token.")
 
 
 @app.post("/report/{session_id}")
@@ -398,7 +401,7 @@ async def save_report(
         raise HTTPException(status_code=403, detail="Access denied")
 
     if is_worker:
-        print(f"WORKER_REPORT_WRITE: worker={user.id} session_id={session_id} session_owner={session.user_id}")
+        logger.info("WORKER_REPORT_WRITE: worker=%s session_id=%s session_owner=%s", user.id, session_id, session.user_id)
 
     async with async_session() as db:
         await update_session_report(db, session_id, report.model_dump_json())
@@ -407,8 +410,8 @@ async def save_report(
     def _archive():
         try:
             archive_report(session_id, report.model_dump(), generate_report_pdf(report))
-        except Exception as exc:
-            print(f"REPORT_ARCHIVE_ERROR: session_id={session_id} error={exc}")
+        except Exception:
+            logger.exception("Report archival failed for session %s", session_id)
 
     background_tasks.add_task(_archive)
     return {"status": "success"}
