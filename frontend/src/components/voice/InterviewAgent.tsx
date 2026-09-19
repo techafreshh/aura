@@ -10,7 +10,7 @@ import {
   useTrackVolume,
   useMultibandTrackVolume,
 } from "@livekit/components-react";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Track, ConnectionState, type LocalAudioTrack } from "livekit-client";
 import axios from "axios";
 import { getReport, uploadAudio } from "@/api/client";
@@ -287,12 +287,14 @@ function InterviewInner({ sessionId, candidateName = "Candidate", recordAudio = 
     }
   }, [roomState, recordAudio, stopRecorder]);
 
-  // Timer
+  // Timer — stops as soon as the interview ends. The interval previously keyed
+  // only on hasConnected, so the countdown kept ticking over the "interview
+  // complete" overlay until the component unmounted.
   useEffect(() => {
-    if (!hasConnected) return;
+    if (!hasConnected || hasEnded) return;
     const i = setInterval(() => setRemaining((r) => Math.max(0, r - 1)), 1000);
     return () => clearInterval(i);
-  }, [hasConnected]);
+  }, [hasConnected, hasEnded]);
   const mm = String(Math.floor(remaining / 60)).padStart(2, "0");
   const ss = String(remaining % 60).padStart(2, "0");
   const isWarning = remaining <= WARNING_SECONDS && remaining > 0;
@@ -307,12 +309,23 @@ function InterviewInner({ sessionId, candidateName = "Candidate", recordAudio = 
   };
 
   // End interview — disconnect the room so the worker generates the report and shuts down
-  const endInterview = async () => {
+  const endInterview = useCallback(async () => {
     setEndedOpen(true);
     setHasEnded(true);
     try { await localParticipant?.setMicrophoneEnabled(false); } catch {}
     try { await room?.disconnect(); } catch (e) { console.error("Room disconnect failed:", e); }
-  };
+  }, [room, localParticipant]);
+
+  // At 0:00 the candidate's clock is spent. The worker's hard cap fires at the
+  // same wall-clock moment, but if it hasn't torn the room down yet, end from
+  // the client so the candidate lands in the report-polling flow instead of
+  // staring at a dead timer. Deferred to a task — effects must not setState
+  // synchronously.
+  useEffect(() => {
+    if (!hasConnected || hasEnded || remaining > 0) return;
+    const t = setTimeout(() => void endInterview(), 0);
+    return () => clearTimeout(t);
+  }, [hasConnected, hasEnded, remaining, endInterview]);
 
   // After end, poll for the report via the authed axios client — the previous
   // EventSource transport couldn't send the JWT and never received a report.

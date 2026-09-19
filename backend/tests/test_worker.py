@@ -1,3 +1,4 @@
+import asyncio
 import time
 import pytest
 
@@ -172,3 +173,111 @@ def test_create_voice_stt_openrouter_requires_key(monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     with pytest.raises(ValueError, match="OPENROUTER_API_KEY"):
         worker.create_voice_stt("openrouter:deepgram/nova-3")
+
+
+def test_assistant_transcript_text_extracts_string_content():
+    """Assistant items yield their text via text_content (str content parts).
+
+    Regression test: the old handler checked hasattr(part, "text") per content
+    part, which never matched the plain strings livekit-agents >= 1.5 stores —
+    every interviewer line was dropped and transcripts kept only the candidate.
+    """
+    from livekit.agents import llm
+    from agent import worker
+
+    msg = llm.ChatMessage(role="assistant", content=["Tell me about your Kafka workflow."])
+    assert worker.assistant_transcript_text(msg) == "Tell me about your Kafka workflow."
+
+
+def test_assistant_transcript_text_joins_multiple_parts():
+    from livekit.agents import llm
+    from agent import worker
+
+    msg = llm.ChatMessage(role="assistant", content=["Part one.", "Part two."])
+    assert worker.assistant_transcript_text(msg) == "Part one.\nPart two."
+
+
+def test_assistant_transcript_text_ignores_user_items():
+    """User turns are already captured from STT events; they must not duplicate."""
+    from livekit.agents import llm
+    from agent import worker
+
+    msg = llm.ChatMessage(role="user", content=["I use Kafka daily."])
+    assert worker.assistant_transcript_text(msg) == ""
+
+
+def test_assistant_transcript_text_empty_content_and_whitespace():
+    from livekit.agents import llm
+    from agent import worker
+
+    empty = llm.ChatMessage(role="assistant", content=[])
+    assert worker.assistant_transcript_text(empty) == ""
+
+    blank = llm.ChatMessage(role="assistant", content=["   "])
+    assert worker.assistant_transcript_text(blank) == ""
+
+
+def test_assistant_transcript_text_survives_duck_typed_items():
+    """Plain objects without text_content degrade to empty, not a crash."""
+    from agent import worker
+
+    class _OddItem:
+        role = "assistant"
+
+    assert worker.assistant_transcript_text(_OddItem()) == ""
+
+
+@pytest.mark.asyncio
+async def test_end_interview_cancels_timer_saves_report_and_closes_room(monkeypatch):
+    """The agent's end_interview must actually end things: stop the timer,
+    persist the report, then ask the backend to delete the LiveKit room.
+
+    Regression test: the tool previously only generated the report — the room
+    stayed open, so a candidate whose interviewer finished early sat in a
+    silent session with a countdown that never stopped.
+    """
+    from agent import worker
+    from models.schemas import InterviewPlan
+
+    plan = InterviewPlan(candidate_name="Test", extracted_skills=[], question_bank=[])
+    wf = worker.InterviewWorkflow(plan=plan, session=object(), session_id="sess-end-1")
+    wf.context.user_id = "user-1"
+    wf.context.user_email = "user1@example.com"
+    wf.timer_task = asyncio.create_task(asyncio.sleep(60))
+
+    report_calls, close_calls = [], []
+
+    async def _fake_report(*a, **kw):
+        report_calls.append(a)
+
+    monkeypatch.setattr(worker, "generate_and_save_report", _fake_report)
+
+    class _FakeAsyncClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, **kw):
+            close_calls.append((url, kw))
+
+            class _Resp:
+                status_code = 200
+                text = ""
+
+            return _Resp()
+
+    from types import SimpleNamespace
+    monkeypatch.setattr(worker, "httpx", SimpleNamespace(AsyncClient=_FakeAsyncClient))
+    monkeypatch.setenv("WORKER_API_KEY", "wk-test")
+
+    result = await wf.end_interview()
+
+    assert wf.timer_task.cancelling()
+    assert report_calls, "report must be generated before the room is closed"
+    assert len(close_calls) == 1
+    url, kw = close_calls[0]
+    assert url.endswith("/rooms/sess-end-1/close")
+    assert kw["headers"] == {"Authorization": "Bearer wk-test"}
+    assert "ended" in result.lower()

@@ -1,3 +1,4 @@
+import os
 import pytest
 import json
 from unittest.mock import patch, MagicMock
@@ -159,17 +160,19 @@ def test_archive_transcript_calls_put_object(mock_minio_cls):
 
 @patch("utils.storage.Minio")
 def test_get_artifact_returns_data(mock_minio_cls):
-    mock_client = MagicMock()
-    mock_minio_cls.return_value = mock_client
-    mock_response = MagicMock()
-    mock_response.read.return_value = b"file-content"
-    mock_client.get_object.return_value = mock_response
+    # Pin the bucket: an operator .env may set MINIO_BUCKET to anything.
+    with patch.dict(os.environ, {"MINIO_BUCKET": "reports"}):
+        mock_client = MagicMock()
+        mock_minio_cls.return_value = mock_client
+        mock_response = MagicMock()
+        mock_response.read.return_value = b"file-content"
+        mock_client.get_object.return_value = mock_response
 
-    from utils.storage import get_artifact
-    result = get_artifact("sess-t3", "Jane Smith", "transcript.json")
+        from utils.storage import get_artifact
+        result = get_artifact("sess-t3", "Jane Smith", "transcript.json")
 
-    assert result == b"file-content"
-    mock_client.get_object.assert_called_once_with("reports", "jane-smith_sess-t3/transcript.json")
+        assert result == b"file-content"
+        mock_client.get_object.assert_called_once_with("reports", "jane-smith_sess-t3/transcript.json")
 
 
 @patch("utils.storage.Minio")

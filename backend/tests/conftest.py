@@ -6,9 +6,12 @@ import pytest_asyncio
 os.environ.setdefault("JWT_SECRET", "test-secret-key-for-testing-only")
 os.environ.setdefault("DATABASE_PATH", ":memory:")
 os.environ.setdefault("WORKER_API_KEY", "test-worker-key")
-# The suite targets the in-memory SQLite DB; never let a DATABASE_URL exported
-# in the operator's shell (a real Postgres, say) leak into test runs.
-os.environ.pop("DATABASE_URL", None)
+# The suite targets the in-memory SQLite DB. Pin DATABASE_URL to an empty
+# string rather than deleting it: load_dotenv() (run by module imports, after
+# this file) only fills vars that are absent, so an empty value blocks a root
+# .env from re-injecting a real Postgres URL mid-collection — and db.database
+# treats "" as unset.
+os.environ["DATABASE_URL"] = ""
 
 
 class _TestUser:
