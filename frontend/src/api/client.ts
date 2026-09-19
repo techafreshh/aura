@@ -14,6 +14,23 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Surface server-side correlation ids for unexpected (5xx) failures in the
+// browser console so a user report can be matched to backend/Sentry logs.
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const status = error?.response?.status;
+    if (status && status >= 500) {
+      const errorId = error?.response?.data?.error_id;
+      console.error(
+        `API error ${status} on ${error?.config?.method?.toUpperCase()} ${error?.config?.url}` +
+          (errorId ? ` [error_id=${errorId}]` : '')
+      );
+    }
+    return Promise.reject(error);
+  }
+);
+
 export interface InterviewPlan {
   candidate_name: string;
   extracted_skills: string[];
@@ -156,9 +173,21 @@ export interface LoginResponse {
 /** Pull a human-readable message out of an axios error from our API. */
 export const apiErrorMessage = (error: unknown, fallback = 'Something went wrong. Please try again.'): string => {
   if (axios.isAxiosError(error)) {
-    const detail = error.response?.data?.detail;
+    const data = error.response?.data;
+    const detail = data?.detail;
     if (typeof detail === 'string') return detail;
-    if (detail?.message) return detail.message as string;
+    // 422 handler: { detail: { message, errors: [{ field, message }] } }
+    if (detail && typeof detail === 'object' && typeof detail.message === 'string') {
+      const fieldErrors = Array.isArray(detail.errors)
+        ? detail.errors
+            .map((e: { field?: string; message?: string }) => (e?.field ? `${e.field}: ${e.message}` : e?.message))
+            .filter(Boolean)
+            .slice(0, 3)
+        : [];
+      return fieldErrors.length > 0 ? `${detail.message} (${fieldErrors.join('; ')})` : detail.message;
+    }
+    // slowapi 429 bodies use { error: "..." } instead of detail
+    if (typeof data?.error === 'string') return data.error;
   }
   return fallback;
 };

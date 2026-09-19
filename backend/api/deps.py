@@ -34,6 +34,11 @@ async def get_current_user(request: Request) -> User | _WorkerUser:
     except jwt.InvalidTokenError:
         raise HTTPException(401, "Invalid token")
 
+    # A forged token can legally decode yet lack 'sub' — reject it as
+    # invalid instead of letting the KeyError surface as a 500.
+    if not isinstance(payload.get("sub"), str):
+        raise HTTPException(401, "Invalid token")
+
     async with async_session() as db:
         user = await get_user_by_id(db, payload["sub"])
 

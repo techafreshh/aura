@@ -16,6 +16,7 @@ import { RecruiterDashboard } from './pages/RecruiterDashboard'
 import { InviteBuilder } from './pages/InviteBuilder'
 import { InviteDetail } from './pages/InviteDetail'
 import { InviteInterview } from './pages/InviteInterview'
+import { NotFound } from './pages/NotFound'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 
 function App() {
@@ -38,6 +39,7 @@ function App() {
         <Route path="/my-interviews/:sessionId" element={<ProtectedRoute><CandidateSessionReport /></ProtectedRoute>} />
         <Route path="/admin" element={<ProtectedRoute requireAdmin><AdminDashboard /></ProtectedRoute>} />
         <Route path="/admin/session/:sessionId" element={<ProtectedRoute requireAdmin><SessionDetail /></ProtectedRoute>} />
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </AuthProvider>
   )
