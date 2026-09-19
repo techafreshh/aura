@@ -13,9 +13,10 @@ import { useInterviewGuard } from '../use-interview-guard'
  */
 
 function Harness({ enabled, onConfirm }: { enabled: boolean; onConfirm: () => void }) {
-  const { confirmOpen, resolveLeave } = useInterviewGuard(enabled, onConfirm)
+  const { confirmOpen, requestLeave, resolveLeave } = useInterviewGuard(enabled, onConfirm)
   return (
     <div data-testid="modal" data-open={confirmOpen ? 'true' : 'false'}>
+      <button data-testid="request" onClick={() => requestLeave()}>request</button>
       <button data-testid="stay" onClick={() => resolveLeave(false)}>stay</button>
       <button data-testid="leave" onClick={() => resolveLeave(true)}>leave</button>
     </div>
@@ -23,6 +24,33 @@ function Harness({ enabled, onConfirm }: { enabled: boolean; onConfirm: () => vo
 }
 
 const isOpen = () => screen.getByTestId('modal').dataset.open === 'true'
+
+/**
+ * This suite drives history and clicks explicitly inside act: jsdom
+ * dispatches `popstate` on a macrotask that can land after the act scope
+ * closes, and user-event's click dispatches are not act-wrapped in this
+ * setup — so the guard's state updates would land outside act and race the
+ * assertions (tripping React's act warning along the way). Awaiting the
+ * popstate event / the click inside an act scope pins every state update
+ * inside act, deterministically. Every backInAct call site has a history
+ * entry below the current one (the guard's sentinel or a pushed runway), so
+ * the popstate event always fires.
+ */
+const backInAct = async () => {
+  await act(async () => {
+    const popped = new Promise<void>((resolve) =>
+      window.addEventListener('popstate', () => resolve(), { once: true }),
+    )
+    window.history.back()
+    await popped
+  })
+}
+
+const clickInAct = async (element: HTMLElement) => {
+  await act(async () => {
+    await userEvent.click(element)
+  })
+}
 
 afterEach(() => {
   cleanup()
@@ -59,9 +87,7 @@ describe('useInterviewGuard', () => {
 
   it('opens the modal on a back press without leaving the page', async () => {
     render(<Harness enabled onConfirm={() => {}} />)
-    await act(async () => {
-      window.history.back()
-    })
+    await backInAct()
     await waitFor(() => expect(isOpen()).toBe(true))
     // The sentinel shares the interview URL, so popping it changes nothing
     // visible — React Router (and the interview) stay mounted.
@@ -70,38 +96,65 @@ describe('useInterviewGuard', () => {
 
   it('re-arms after staying, so the next attempt is interceptable again', async () => {
     render(<Harness enabled onConfirm={() => {}} />)
-    await act(async () => {
-      window.history.back()
-    })
+    await backInAct()
     await waitFor(() => expect(isOpen()).toBe(true))
 
-    await userEvent.click(screen.getByTestId('stay'))
+    await clickInAct(screen.getByTestId('stay'))
     expect(isOpen()).toBe(false)
 
-    await act(async () => {
-      window.history.back()
-    })
+    await backInAct()
+    await waitFor(() => expect(isOpen()).toBe(true))
+  })
+
+  it('opens the modal via requestLeave without any navigation event', async () => {
+    // The brand-link path: preventDefault'ed clicks never touch history, so
+    // requestLeave must open the modal on its own — and Stay must still arm
+    // interception for a later Back press.
+    render(<Harness enabled onConfirm={() => {}} />)
+    await clickInAct(screen.getByTestId('request'))
+    expect(isOpen()).toBe(true)
+    expect(window.location.pathname).toBe('/')
+
+    await clickInAct(screen.getByTestId('stay'))
+    expect(isOpen()).toBe(false)
+
+    await backInAct()
     await waitFor(() => expect(isOpen()).toBe(true))
   })
 
   it('ends the interview on leave and stops intercepting afterwards', async () => {
     const onConfirm = vi.fn()
     render(<Harness enabled onConfirm={onConfirm} />)
-    await act(async () => {
-      window.history.back()
-    })
+    await backInAct()
     await waitFor(() => expect(isOpen()).toBe(true))
 
-    await userEvent.click(screen.getByTestId('leave'))
+    await clickInAct(screen.getByTestId('leave'))
     expect(onConfirm).toHaveBeenCalledTimes(1)
     expect(isOpen()).toBe(false)
 
     // Post-confirm pops (the user navigating home during report generation)
-    // must not re-open the modal.
-    await act(async () => {
-      window.history.back()
-    })
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    // must not re-open the modal. pushState first so the back actually has
+    // an entry to pop — otherwise back() is a no-op here and the trap's
+    // post-confirm behavior would go unexercised.
+    window.history.pushState({}, '')
+    await backInAct()
     expect(isOpen()).toBe(false)
+  })
+
+  it('keeps intercepting rapid double backs instead of escaping the URL', async () => {
+    // Simulate the real flow: the user was on the landing page, navigated to
+    // the interview, and the guard pushed its sentinel. After the first Back
+    // opens the modal, a rapid second Back must land on a same-URL entry
+    // again — not fall through to the page below, which would unmount the
+    // interview (and this modal) without any confirmation.
+    window.history.pushState({}, '', '/landing')
+    window.history.pushState({}, '', '/interview')
+    render(<Harness enabled onConfirm={() => {}} />)
+    await backInAct()
+    await waitFor(() => expect(isOpen()).toBe(true))
+
+    await backInAct()
+    await waitFor(() => expect(isOpen()).toBe(true))
+    expect(window.location.pathname).toBe('/interview')
   })
 })

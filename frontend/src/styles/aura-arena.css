@@ -22,6 +22,7 @@
   --accent-deep: #4338ca;
   --success:    #10b981;
   --danger:     #ef4444;
+  --warning:    #fbbf24;
   --font-display: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-body:    'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
@@ -247,7 +248,7 @@
 .aura-arena-page .guard-overlay { position: fixed; inset: 0; z-index: 70; display: none; align-items: center; justify-content: center; padding: 24px; background: rgba(9,9,11,0.8); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
 .aura-arena-page .guard-overlay[data-open="true"] { display: flex; animation: aura-arena-fade-in .18s ease; }
 .aura-arena-page .guard-modal { max-width: 440px; width: 100%; padding: 28px; text-align: center; border: 1px solid var(--border); border-radius: var(--radius-lg); background: rgba(20, 20, 26, 0.96); box-shadow: 0 0 0 1px rgba(255,255,255,0.04) inset, 0 30px 60px -20px rgba(0,0,0,0.7); animation: aura-arena-pop-in .18s cubic-bezier(.2,.7,.2,1); }
-.aura-arena-page .guard-icon { width: 48px; height: 48px; margin: 0 auto 14px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: var(--warning, #fbbf24); background: color-mix(in oklab, var(--warning, #fbbf24) 15%, transparent); border: 1px solid color-mix(in oklab, var(--warning, #fbbf24) 45%, transparent); }
+.aura-arena-page .guard-icon { width: 48px; height: 48px; margin: 0 auto 14px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: var(--warning); background: color-mix(in oklab, var(--warning) 15%, transparent); border: 1px solid color-mix(in oklab, var(--warning) 45%, transparent); }
 .aura-arena-page .guard-modal h2 { margin: 0 0 10px; font-size: 22px; color: var(--fg); letter-spacing: -0.02em; font-weight: 600; }
 .aura-arena-page .guard-modal p { margin: 0 0 22px; font-size: 14px; line-height: 1.6; color: var(--muted); }
 .aura-arena-page .guard-actions { display: flex; gap: 10px; }

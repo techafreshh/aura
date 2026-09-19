@@ -25,10 +25,11 @@ export interface InterviewGuard {
  *   onto the history stack while the guard is active. A Back press pops to
  *   the sentinel — the location never changes, so React Router re-renders
  *   nothing and the interview stays mounted — and the ``popstate`` handler
- *   opens the modal. Staying pushes a fresh sentinel so the next attempt is
- *   interceptable too; once the modal is open, further popstates keep it
- *   open rather than silently dismissing (repeated Back/Stay cycles stack
- *   several sentinels). Link clicks don't go through history, so in-page
+ *   opens the modal and immediately parks on a fresh sentinel, so repeated
+ *   Back presses keep landing on same-URL entries instead of falling
+ *   through to the page below the interview (a real navigation there would
+ *   unmount the component rendering this modal). Staying pushes another
+ *   sentinel the same way. Link clicks don't go through history, so in-page
  *   links call ``requestLeave`` after ``preventDefault``.
  *
  * Confirming the modal hands off to ``onConfirmedLeave`` (the component
@@ -74,6 +75,11 @@ export function useInterviewGuard(
     const onPopState = () => {
       if (leaveRequested.current) return
       setConfirmOpen(true)
+      // Park on a fresh sentinel immediately: a rapid second Back must land
+      // on a same-URL entry, not fall through to the page below the
+      // interview — that navigation unmounts the component rendering this
+      // modal, ending the interview without any confirmation.
+      history.pushState(history.state, '')
     }
 
     // The sentinel occupies the slot the user would navigate away through.
@@ -90,5 +96,10 @@ export function useInterviewGuard(
     }
   }, [enabled])
 
-  return { confirmOpen, requestLeave, resolveLeave }
+  // The open state is derived, not synced: when the guard deactivates (room
+  // ended or torn down) any open modal disappears immediately instead of
+  // lingering above the ended-report overlay. A subsequent re-enable (e.g.
+  // LiveKit reconnect) restores a pending leave intent, which is consistent
+  // with the guard's job of intercepting exits while the room is live.
+  return { confirmOpen: confirmOpen && enabled, requestLeave, resolveLeave }
 }

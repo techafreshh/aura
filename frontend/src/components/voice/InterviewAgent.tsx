@@ -324,14 +324,36 @@ function InterviewInner({ sessionId, candidateName = "Candidate", recordAudio = 
     endInterview,
   );
 
-  // Escape closes the guard modal; the safe action ("Stay") gets focus so
-  // Enter is also the non-destructive choice.
+  // Keyboard support for the guard modal: Escape closes it (the safe action),
+  // "Stay" gets focus on open so Enter is also the non-destructive choice, and
+  // Tab cycles within the dialog so focus can't reach background controls
+  // while aria-modal claims them.
   const stayButtonRef = useRef<HTMLButtonElement>(null);
+  const guardModalRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!leaveConfirmOpen) return;
     stayButtonRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") resolveLeave(false);
+      if (e.key === "Escape") {
+        resolveLeave(false);
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const modal = guardModalRef.current;
+      if (!modal) return;
+      const focusables = Array.from(modal.querySelectorAll<HTMLElement>("button"));
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement;
+      const inside = active instanceof HTMLElement && modal.contains(active);
+      if (e.shiftKey && (active === first || !inside)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (active === last || !inside)) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -610,6 +632,7 @@ function InterviewInner({ sessionId, candidateName = "Candidate", recordAudio = 
       >
         <div
           className="guard-modal"
+          ref={guardModalRef}
           role="alertdialog"
           aria-modal="true"
           aria-labelledby="guard-title"
