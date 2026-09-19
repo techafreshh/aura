@@ -86,6 +86,9 @@ class InterviewInvite(Base):
     # than a column on interview_sessions) so existing deployments need no ALTER.
     session_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("interview_sessions.id"), nullable=True)
     redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # When the link stops being redeemable. Null means no expiry. Redemption
+    # enforces it inside redeem_invite's atomic claim, not at read time.
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="pending")  # "pending" | "completed" | "cancelled"
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

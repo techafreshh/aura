@@ -148,6 +148,23 @@ def get_recruiter_monthly_limit() -> int:
 RECRUITER_MONTHLY_LIMIT: int = get_recruiter_monthly_limit()
 
 
+# How long a recruiter invite link stays redeemable when the recruiter doesn't
+# pick a custom window. Per-invite selection is InviteCreate.expires_in_hours
+# (1-720 hours); this is the fallback applied when that is omitted. Links
+# created before this feature have expires_at = NULL and never expire.
+def get_default_invite_expiry_hours() -> int:
+    """Return the default invite-link validity window in hours (default 24)."""
+    raw = os.getenv("DEFAULT_INVITE_EXPIRY_HOURS", "24")
+    try:
+        value = int(raw)
+    except ValueError:
+        return 24
+    return value if value > 0 else 24
+
+
+DEFAULT_INVITE_EXPIRY_HOURS: int = get_default_invite_expiry_hours()
+
+
 # --- AI model configuration -------------------------------------------------
 #
 # Every model the application talks to is selectable via env, so cost/quality

@@ -1,5 +1,5 @@
-from datetime import datetime, timezone
-from sqlalchemy import select, desc, func, update
+from datetime import datetime, timedelta, timezone
+from sqlalchemy import select, desc, func, update, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from db.models import User, OAuthIdentity, InterviewSession, InterviewInvite
@@ -272,15 +272,29 @@ async def create_invite(
     context: str | None,
     questions: list[str],
     token: str,
+    expires_in_hours: int | None = None,
 ) -> InterviewInvite:
+    """Create a pending invite.
+
+    ``expires_in_hours`` bounds how long the shareable link stays redeemable;
+    the endpoint resolves the product default (24h) before calling, so None
+    here means "no expiry" — which only invites created before the feature
+    (and any caller omitting it) have.
+    """
     import json
 
+    expires_at = (
+        datetime.now(timezone.utc) + timedelta(hours=expires_in_hours)
+        if expires_in_hours
+        else None
+    )
     invite = InterviewInvite(
         recruiter_id=recruiter_id,
         title=title,
         context=context,
         questions_json=json.dumps(questions),
         token=token,
+        expires_at=expires_at,
         status="pending",
     )
     db.add(invite)
@@ -338,7 +352,18 @@ async def count_redeemed_invites_this_month(db: AsyncSession, recruiter_id: str)
 CLAIMED = "claimed"
 ALREADY_CLAIMED = "already_claimed"
 CANCELLED = "cancelled"
+EXPIRED = "expired"
 QUOTA_EXCEEDED = "quota_exceeded"
+
+
+def as_utc(dt: datetime) -> datetime:
+    """Re-tag a datetime read back from the database as UTC before comparing.
+
+    SQLite round-trips DateTime(timezone=True) values naive; Postgres returns
+    aware ones. Everything the app writes is UTC, so re-tagging is lossless
+    and makes naive and aware values comparable (same pattern as api/auth.py).
+    """
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
 async def redeem_invite(
@@ -361,14 +386,20 @@ async def redeem_invite(
     - ``already_claimed`` — another candidate (or an earlier request) holds it.
     - ``cancelled`` — the invite was cancelled (a cancel racing a redeem loses
       its own race here rather than leaving a cancelled link spendable).
+    - ``expired`` — the link's ``expires_at`` passed before this start landed.
+      Like cancellation, expiry is a guard *inside* the atomic claim, so a
+      start racing the expiry moment loses rather than spending a dead link.
     - ``quota_exceeded`` — the recruiter's monthly limit was hit *inside* the
       atomic claim, so concurrent starts on different invites of one recruiter
       cannot overshoot the quota the way a pre-claim count check lets them.
     """
+    now = datetime.now(timezone.utc)
     guards = [
         InterviewInvite.id == invite_id,
         InterviewInvite.candidate_user_id.is_(None),
         InterviewInvite.status == "pending",
+        # Null expires_at (pre-feature and crud-level invites) never expires.
+        or_(InterviewInvite.expires_at.is_(None), InterviewInvite.expires_at > now),
     ]
     if monthly_limit is not None:
         month_start = datetime.now(timezone.utc).replace(
@@ -391,7 +422,7 @@ async def redeem_invite(
         .values(
             candidate_user_id=candidate_user_id,
             session_id=session_id,
-            redeemed_at=datetime.now(timezone.utc),
+            redeemed_at=now,
         )
     )
     await db.commit()
@@ -405,6 +436,8 @@ async def redeem_invite(
         return ALREADY_CLAIMED
     if stored.status == "cancelled":
         return CANCELLED
+    if stored.expires_at is not None and as_utc(stored.expires_at) <= now:
+        return EXPIRED
     if monthly_limit is not None and recruiter_id is not None:
         used = await count_redeemed_invites_this_month(db, recruiter_id)
         if used >= monthly_limit:

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { getRecruiterInvite, downloadFile, fetchBlob, type InviteDetail as InviteDetailData } from '@/api/client'
 import { useAuth } from '@/contexts/AuthContext'
-import { statusPill, formatDateTime, initials } from '@/lib/dashboard-utils'
+import { statusPill, formatDateTime, initials, isExpired } from '@/lib/dashboard-utils'
 import { ReportView } from '@/components/interview/ReportView'
 import '@/styles/aura-dashboard.css'
 
@@ -156,6 +156,13 @@ export function InviteDetail() {
               <span className="dot"></span>{invite.status === 'cancelled' ? 'Cancelled' : status.text}
             </span>
             <span style={{ marginLeft: 12, opacity: 0.7 }}>Created {formatDateTime(invite.created_at)}</span>
+            {invite.expires_at && (
+              <span style={{ marginLeft: 12, opacity: 0.7 }}>
+                {isExpired(invite.expires_at) && invite.status === 'pending'
+                  ? 'Link expired'
+                  : `Link expires ${formatDateTime(invite.expires_at)}`}
+              </span>
+            )}
           </p>
         </header>
 

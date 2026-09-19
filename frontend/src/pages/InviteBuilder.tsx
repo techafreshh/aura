@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { createInvite, type InviteOut } from '@/api/client'
 import { useAuth } from '@/contexts/AuthContext'
-import { initials } from '@/lib/dashboard-utils'
+import { initials, formatDateTime } from '@/lib/dashboard-utils'
 import { Toaster } from '@/components/ui/toaster'
 import { useToast } from '@/hooks/use-toast'
 import axios from 'axios'
@@ -11,12 +11,23 @@ import '@/styles/aura-pre.css'
 const MIN_QUESTIONS = 2
 const MAX_QUESTIONS = 5
 
+// Link-lifetime choices, in hours. 24h is the product default; the API
+// accepts 1–720 (30 days) if a custom value is ever wanted.
+const EXPIRY_OPTIONS = [
+  { hours: 4, label: '4 hours' },
+  { hours: 24, label: '24 hours' },
+  { hours: 72, label: '3 days' },
+  { hours: 168, label: '7 days' },
+]
+const DEFAULT_EXPIRY_HOURS = 24
+
 export function InviteBuilder() {
   const { user, logout } = useAuth()
   const { toast } = useToast()
   const [title, setTitle] = useState('')
   const [context, setContext] = useState('')
   const [questions, setQuestions] = useState<string[]>(['', ''])
+  const [expiresInHours, setExpiresInHours] = useState<number>(DEFAULT_EXPIRY_HOURS)
   const [creating, setCreating] = useState(false)
   const [created, setCreated] = useState<InviteOut | null>(null)
   const [copied, setCopied] = useState(false)
@@ -46,6 +57,7 @@ export function InviteBuilder() {
         title: title.trim(),
         context: context.trim() || undefined,
         questions: trimmed,
+        expires_in_hours: expiresInHours,
       })
       setCreated(invite)
     } catch (error) {
@@ -114,6 +126,11 @@ export function InviteBuilder() {
                   {copied ? 'Copied!' : 'Copy link'}
                 </button>
               </div>
+              {created.expires_at && (
+                <p style={{ marginTop: 10, fontSize: 12, opacity: 0.6 }}>
+                  This link stops working {formatDateTime(created.expires_at)}.
+                </p>
+              )}
               <div className="btn-row" style={{ marginTop: 18 }}>
                 <Link to="/recruiter" className="btn btn-ghost">Back to dashboard</Link>
                 <Link to="/recruiter/new" className="btn btn-primary">Create another</Link>
@@ -214,6 +231,25 @@ export function InviteBuilder() {
                 </div>
               ))}
             </div>
+
+            <label className="label-row" htmlFor="invite-expiry" style={{ marginTop: 22 }}>
+              Link expires after
+            </label>
+            <select
+              id="invite-expiry"
+              value={expiresInHours}
+              onChange={e => setExpiresInHours(Number(e.target.value))}
+              style={{ marginTop: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: '11px 14px', color: 'inherit', fontSize: 14 }}
+            >
+              {EXPIRY_OPTIONS.map(opt => (
+                <option key={opt.hours} value={opt.hours} style={{ color: '#111' }}>
+                  {opt.label}{opt.hours === DEFAULT_EXPIRY_HOURS ? ' (default)' : ''}
+                </option>
+              ))}
+            </select>
+            <p style={{ marginTop: 8, fontSize: 12, opacity: 0.55 }}>
+              The candidate must start the interview within this window — after it passes the link stops working.
+            </p>
 
             <div className="btn-row" style={{ marginTop: 20 }}>
               {questions.length < MAX_QUESTIONS && (

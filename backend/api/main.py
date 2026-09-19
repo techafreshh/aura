@@ -5,6 +5,7 @@ import re
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 import sqlalchemy as sa
@@ -55,12 +56,19 @@ from db.crud import (
     redeem_invite,
     release_invite_claim,
     complete_invite_by_session,
+    as_utc,
     CLAIMED,
     ALREADY_CLAIMED,
     CANCELLED,
+    EXPIRED,
 )
 from db.database import DATABASE_URL, async_session, init_db
-from utils.config import ENVIRONMENT, OAUTH_SESSION_SECRET, RECRUITER_MONTHLY_LIMIT
+from utils.config import (
+    DEFAULT_INVITE_EXPIRY_HOURS,
+    ENVIRONMENT,
+    OAUTH_SESSION_SECRET,
+    RECRUITER_MONTHLY_LIMIT,
+)
 
 import sentry_sdk
 
@@ -655,6 +663,7 @@ def _invite_out(invite, session=None) -> InviteOut:
         status=invite.status,
         created_at=invite.created_at,
         completed_at=invite.completed_at,
+        expires_at=invite.expires_at,
         candidate_user_id=invite.candidate_user_id,
         session_id=invite.session_id,
         candidate_name=session.candidate_name if session else None,
@@ -675,7 +684,11 @@ async def _get_owned_invite(db, invite_id: str, user):
 @app.post("/recruiter/invites", response_model=InviteOut, status_code=201)
 @limiter.limit("30/hour")
 async def create_interview_invite(request: Request, payload: InviteCreate, user=Depends(get_current_user)):
-    """Create an interview invite with 2-5 custom questions. Returns the shareable token."""
+    """Create an interview invite with 2-5 custom questions. Returns the shareable token.
+
+    The link stops being redeemable when its ``expires_at`` passes — 24 hours
+    from creation unless the recruiter picked a custom window.
+    """
     require_recruiter(user)
     async with async_session() as db:
         invite = await create_invite(
@@ -685,6 +698,7 @@ async def create_interview_invite(request: Request, payload: InviteCreate, user=
             context=sanitize_text(payload.context, 4000) or None,
             questions=payload.questions,
             token=str(uuid.uuid4()),
+            expires_in_hours=payload.expires_in_hours or DEFAULT_INVITE_EXPIRY_HOURS,
         )
         return _invite_out(invite)
 
@@ -776,6 +790,15 @@ async def get_invite_preview(request: Request, token: str, user=Depends(get_curr
             raise HTTPException(status_code=409, detail="This invite was cancelled")
         if invite.candidate_user_id and invite.candidate_user_id != user.id:
             raise HTTPException(status_code=403, detail="This invite has already been used")
+        # Only unredeemed links expire here: a candidate who already started
+        # their invite (candidate_user_id == user.id) is re-opening their own
+        # session, and /start hands it back idempotently regardless of expiry.
+        if (
+            invite.candidate_user_id is None
+            and invite.expires_at is not None
+            and as_utc(invite.expires_at) <= datetime.now(timezone.utc)
+        ):
+            raise HTTPException(status_code=410, detail="This interview link has expired.")
         recruiter = await get_user_by_id(db, invite.recruiter_id)
 
     return InvitePreview(
@@ -783,6 +806,7 @@ async def get_invite_preview(request: Request, token: str, user=Depends(get_curr
         context=invite.context,
         questions=json.loads(invite.questions_json),
         recruiter_name=(recruiter.name if recruiter else "") or "Your recruiter",
+        expires_at=invite.expires_at,
     )
 
 
@@ -850,6 +874,8 @@ async def start_invited_interview(request: Request, token: str, user=Depends(get
                 raise HTTPException(status_code=403, detail="This invite has already been used")
             if reason == CANCELLED:
                 raise HTTPException(status_code=409, detail="This invite was cancelled")
+            if reason == EXPIRED:
+                raise HTTPException(status_code=410, detail="This interview link has expired.")
             raise HTTPException(
                 status_code=403,
                 detail="This recruiter has reached their monthly interview limit. Please try again next month.",

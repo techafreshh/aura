@@ -41,6 +41,7 @@ cp .env.example .env
    - `SENDBYTE_FROM_EMAIL` — a verified sender on your SendByte account, e.g. `Aura <no-reply@yourdomain.com>`.
    - `PUBLIC_API_URL` — optional. Public base URL of the API used in email links; defaults to `{FRONTEND_URL}/api` (matching the frontend nginx proxy). Override only if your proxy layout differs.
    - `RECRUITER_MONTHLY_LIMIT` — max interviews a recruiter can start per calendar month (default `20`). This is the primary lever for controlling AI spend from recruiter invites.
+   - `DEFAULT_INVITE_EXPIRY_HOURS` — how long a recruiter invite link stays redeemable when the recruiter doesn't pick a custom window (default `24`). Recruiters choose per invite (1–720 hours) in the invite builder.
 
    **OAuth callback URLs to register with each provider:**
    - Google: `https://yourdomain.com/api/auth/google/callback`
@@ -105,7 +106,7 @@ After the first deploy with PR #10, verify the auth path end-to-end:
 - **Tables:**
   - `users` — `id`, `email` (unique), `name`, `avatar_url`, `provider` (`google` | `github` | `email`), `provider_id`, `role` (`candidate` | `admin`), `password_hash` (null for OAuth-only accounts), `email_verified`, `verification_token_hash` + `verification_token_expires_at`, `reset_token_hash` + `reset_token_expires_at`, `created_at`, `last_login_at`. Only SHA-256 hashes of email tokens are stored — raw tokens exist solely inside email links.
   - `interview_sessions` — `id`, `user_id` (FK), `candidate_name`, `plan_json`, `report_json`, `transcript_json`, `status` (`pending` | `in_progress` | `completed`), `created_at`, `completed_at`.
-  - `interview_invites` — recruiter-created invites: `id`, `recruiter_id`, `title`, `context`, `questions_json`, `token` (invite URL), `candidate_user_id`, `session_id`, `redeemed_at`, `status` (`pending` | `completed` | `cancelled`), `created_at`, `completed_at`. Created by the `add_interview_invites_table` revision on first startup after upgrading.
+  - `interview_invites` — recruiter-created invites: `id`, `recruiter_id`, `title`, `context`, `questions_json`, `token` (invite URL), `candidate_user_id`, `session_id`, `redeemed_at`, `expires_at` (when the link stops being redeemable; `NULL` on pre-existing invites means no expiry), `status` (`pending` | `completed` | `cancelled`), `created_at`, `completed_at`. Created by the `add_interview_invites_table` revision on first startup after upgrading; the `add_invite_expires_at` revision adds the expiry column.
 
 ### SQLite → Postgres cutover
 

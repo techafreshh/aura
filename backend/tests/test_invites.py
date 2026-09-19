@@ -2,6 +2,7 @@
 import asyncio
 import itertools
 import pytest
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 from httpx import AsyncClient, ASGITransport
 from pydantic import ValidationError
@@ -618,3 +619,148 @@ def test_invite_create_schema_rejects_whitespace_only_title():
     with pytest.raises(ValidationError):
         InviteCreate(title="   ", questions=["a?", "b?"])
     assert InviteCreate(title="  Backend Engineer  ", questions=["a?", "b?"]).title == "Backend Engineer"
+
+
+# ------------------------------------------------------------------ expiry
+
+
+@pytest.mark.asyncio
+async def test_invite_create_defaults_to_24h_expiry():
+    """Omitting expires_in_hours stores expires_at ≈ 24h out."""
+    from utils.config import DEFAULT_INVITE_EXPIRY_HOURS
+
+    await _make_recruiter()
+    before = datetime.now(timezone.utc)
+    async with _client() as ac:
+        resp = await ac.post("/recruiter/invites", json={
+            "title": "Backend Engineer",
+            "questions": ["Q1?", "Q2?"],
+        })
+    assert resp.status_code == 201
+    # SQLite round-trips datetimes naive; re-tag as UTC before comparing.
+    expires_at = datetime.fromisoformat(resp.json()["expires_at"].replace("Z", "+00:00")).replace(tzinfo=timezone.utc)
+    expected = timedelta(hours=DEFAULT_INVITE_EXPIRY_HOURS)
+    # 2-minute slop for clock skew between the assertion and the request.
+    assert before + expected - timedelta(minutes=2) <= expires_at <= datetime.now(timezone.utc) + expected + timedelta(minutes=2)
+
+
+@pytest.mark.asyncio
+async def test_invite_create_custom_expiry_window():
+    await _make_recruiter()
+    async with _client() as ac:
+        resp = await ac.post("/recruiter/invites", json={
+            "title": "Backend Engineer",
+            "questions": ["Q1?", "Q2?"],
+            "expires_in_hours": 4,
+        })
+    assert resp.status_code == 201
+    # SQLite round-trips datetimes naive; re-tag as UTC before comparing.
+    expires_at = datetime.fromisoformat(resp.json()["expires_at"].replace("Z", "+00:00")).replace(tzinfo=timezone.utc)
+    delta = expires_at - datetime.now(timezone.utc)
+    assert timedelta(hours=3, minutes=58) < delta < timedelta(hours=4, minutes=2)
+
+
+def test_invite_create_schema_rejects_bad_expiry():
+    with pytest.raises(ValidationError):
+        InviteCreate(title="T", questions=["a?", "b?"], expires_in_hours=0)
+    with pytest.raises(ValidationError):
+        InviteCreate(title="T", questions=["a?", "b?"], expires_in_hours=721)
+    assert InviteCreate(title="T", questions=["a?", "b?"], expires_in_hours=720).expires_in_hours == 720
+
+
+@pytest.mark.asyncio
+async def test_expired_invite_rejects_start_with_410():
+    recruiter = await _make_recruiter()
+    async with async_session() as db:
+        invite = await create_invite(db, recruiter_id=recruiter.id, title="A", context=None,
+                                     questions=["Q1?", "Q2?"], token="tok-expired-start")
+        invite.expires_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+        await db.commit()
+        token = invite.token
+
+    await _make_candidate()
+    async with _client() as ac:
+        resp = await ac.post(f"/invite/{token}/start")
+    assert resp.status_code == 410
+    assert "expired" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_expired_invite_preview_returns_410():
+    recruiter = await _make_recruiter()
+    async with async_session() as db:
+        invite = await create_invite(db, recruiter_id=recruiter.id, title="A", context=None,
+                                     questions=["Q1?", "Q2?"], token="tok-expired-preview")
+        invite.expires_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+        await db.commit()
+        token = invite.token
+
+    await _make_candidate()
+    async with _client() as ac:
+        resp = await ac.get(f"/invite/{token}")
+    assert resp.status_code == 410
+
+
+@pytest.mark.asyncio
+async def test_redeem_invite_reason_is_expired():
+    """The atomic claim itself reports expiry (not already_claimed) for a dead link."""
+    from db.crud import redeem_invite, EXPIRED
+
+    recruiter = await _make_recruiter()
+    async with async_session() as db:
+        invite = await create_invite(db, recruiter_id=recruiter.id, title="A", context=None,
+                                     questions=["Q1?", "Q2?"], token="tok-expired-reason")
+        invite.expires_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+        await db.commit()
+        invite_id = invite.id
+
+    async with async_session() as db:
+        reason = await redeem_invite(
+            db, invite_id, candidate_user_id="candidate-x",
+            session_id="sess-x", recruiter_id=recruiter.id, monthly_limit=20,
+        )
+    assert reason == EXPIRED
+
+
+@pytest.mark.asyncio
+async def test_started_invite_not_blocked_by_expiry():
+    """Redemption is the expiry gate: a candidate who started in time re-opens
+    their session idempotently even after expires_at passes."""
+    recruiter = await _make_recruiter()
+    async with async_session() as db:
+        invite = await create_invite(db, recruiter_id=recruiter.id, title="A", context=None,
+                                     questions=["Q1?", "Q2?"], token="tok-expired-idempotent",
+                                     expires_in_hours=1)
+        token = invite.token
+
+    await _make_candidate()
+    async with _client() as ac:
+        first = await ac.post(f"/invite/{token}/start")
+        assert first.status_code == 200
+        session_id = first.json()["session_id"]
+
+        # Age the link past its expiry, then re-open it as the same candidate.
+        async with async_session() as db:
+            row = await get_invite_by_token(db, token)
+            row.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+            await db.commit()
+
+        second = await ac.post(f"/invite/{token}/start")
+        assert second.status_code == 200
+        assert second.json()["session_id"] == session_id
+
+
+@pytest.mark.asyncio
+async def test_null_expiry_invite_never_expires():
+    """Pre-feature invites have expires_at = NULL and stay redeemable."""
+    recruiter = await _make_recruiter()
+    async with async_session() as db:
+        invite = await create_invite(db, recruiter_id=recruiter.id, title="A", context=None,
+                                     questions=["Q1?", "Q2?"], token="tok-null-expiry")
+        assert invite.expires_at is None
+        token = invite.token
+
+    await _make_candidate()
+    async with _client() as ac:
+        resp = await ac.post(f"/invite/{token}/start")
+    assert resp.status_code == 200
