@@ -241,6 +241,22 @@
 .aura-arena-page .ended-overlay p { color: var(--muted); margin: 0 0 24px; font-size: 14px; }
 .aura-arena-page .ended-overlay .check { width: 56px; height: 56px; border-radius: 50%; background: color-mix(in oklab, var(--success) 20%, transparent); border: 1px solid color-mix(in oklab, var(--success) 60%, transparent); display: inline-flex; align-items: center; justify-content: center; color: var(--success); box-shadow: 0 0 40px rgba(16,185,129,0.4); }
 
+/* Leave-intent modal (refresh / navigation guard) */
+.aura-arena-page .dock-wrap { flex-direction: column; align-items: center; gap: 8px; }
+.aura-arena-page .dock-note { margin: 0; font-size: 12px; color: var(--muted-2); text-align: center; text-shadow: 0 1px 8px rgba(0,0,0,0.8); pointer-events: none; }
+.aura-arena-page .guard-overlay { position: fixed; inset: 0; z-index: 70; display: none; align-items: center; justify-content: center; padding: 24px; background: rgba(9,9,11,0.8); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+.aura-arena-page .guard-overlay[data-open="true"] { display: flex; animation: aura-arena-fade-in .18s ease; }
+.aura-arena-page .guard-modal { max-width: 440px; width: 100%; padding: 28px; text-align: center; border: 1px solid var(--border); border-radius: var(--radius-lg); background: rgba(20, 20, 26, 0.96); box-shadow: 0 0 0 1px rgba(255,255,255,0.04) inset, 0 30px 60px -20px rgba(0,0,0,0.7); animation: aura-arena-pop-in .18s cubic-bezier(.2,.7,.2,1); }
+.aura-arena-page .guard-icon { width: 48px; height: 48px; margin: 0 auto 14px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: var(--warning, #fbbf24); background: color-mix(in oklab, var(--warning, #fbbf24) 15%, transparent); border: 1px solid color-mix(in oklab, var(--warning, #fbbf24) 45%, transparent); }
+.aura-arena-page .guard-modal h2 { margin: 0 0 10px; font-size: 22px; color: var(--fg); letter-spacing: -0.02em; font-weight: 600; }
+.aura-arena-page .guard-modal p { margin: 0 0 22px; font-size: 14px; line-height: 1.6; color: var(--muted); }
+.aura-arena-page .guard-actions { display: flex; gap: 10px; }
+.aura-arena-page .guard-actions .btn { flex: 1; height: 44px; padding: 0 16px; border-radius: 12px; font-size: 14px; font-weight: 500; cursor: pointer; transition: transform .15s, background .2s, border-color .2s, box-shadow .25s; }
+.aura-arena-page .guard-actions .btn-ghost { color: var(--fg-2); border: 1px solid var(--border); background: rgba(255,255,255,0.02); }
+.aura-arena-page .guard-actions .btn-ghost:hover { border-color: var(--border-strong); background: rgba(255,255,255,0.04); }
+.aura-arena-page .guard-actions .btn-danger { color: white; border: 1px solid rgba(255,255,255,0.12); background: linear-gradient(180deg, #ef4444, #b91c1c); box-shadow: 0 0 0 1px rgba(255,255,255,0.08) inset, 0 8px 22px -8px rgba(239,68,68,0.6); }
+.aura-arena-page .guard-actions .btn-danger:hover { filter: brightness(1.05); transform: translateY(-1px); }
+
 @media (max-width: 900px) {
   .aura-arena-page .stage { grid-template-columns: 1fr; grid-template-rows: minmax(45vh, 1fr) minmax(0, 45vh); }
   .aura-arena-page .orb-zone { padding-top: 12px; }

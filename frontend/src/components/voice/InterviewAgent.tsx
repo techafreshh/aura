@@ -15,6 +15,7 @@ import { Track, ConnectionState, type LocalAudioTrack } from "livekit-client";
 import axios from "axios";
 import { getReport, uploadAudio } from "@/api/client";
 import { useRoomRecorder } from "@/hooks/use-recorder";
+import { useInterviewGuard } from "@/hooks/use-interview-guard";
 import { useToast } from "@/hooks/use-toast";
 import "@/styles/aura-arena.css";
 
@@ -314,6 +315,28 @@ function InterviewInner({ sessionId, candidateName = "Candidate", recordAudio = 
     try { await room?.disconnect(); } catch (e) { console.error("Room disconnect failed:", e); }
   };
 
+  // Leave guard — active only while the room is live and the user hasn't
+  // already ended the session, so previewing and the end-of-interview teardown
+  // stay friction-free. A confirmed leave runs endInterview: the worker
+  // finalizes the report and the ended-overlay poll below picks it up.
+  const { confirmOpen: leaveConfirmOpen, requestLeave, resolveLeave } = useInterviewGuard(
+    roomState === ConnectionState.Connected && !hasEnded,
+    endInterview,
+  );
+
+  // Escape closes the guard modal; the safe action ("Stay") gets focus so
+  // Enter is also the non-destructive choice.
+  const stayButtonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!leaveConfirmOpen) return;
+    stayButtonRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") resolveLeave(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [leaveConfirmOpen, resolveLeave]);
+
   // After end, poll for the report via the authed axios client — the previous
   // EventSource transport couldn't send the JWT and never received a report.
   // A 404 just means the worker hasn't finished generating the report yet.
@@ -395,7 +418,17 @@ function InterviewInner({ sessionId, candidateName = "Candidate", recordAudio = 
       {/* Top status bar */}
       <header className="topbar" role="banner">
         <div className="top-left">
-          <a className="brand" href="/" aria-label="Aura — back to home">
+          <a
+            className="brand"
+            href="/"
+            aria-label="Aura — back to home"
+            onClick={(e) => {
+              if (roomState === ConnectionState.Connected && !hasEnded) {
+                e.preventDefault();
+                requestLeave();
+              }
+            }}
+          >
             <span className="mark" aria-hidden="true"></span>
             <span className="text">Aura</span>
           </a>
@@ -511,6 +544,9 @@ function InterviewInner({ sessionId, candidateName = "Candidate", recordAudio = 
 
       {/* Bottom action dock */}
       <div className="dock-wrap">
+        <p className="dock-note" aria-hidden="true">
+          Don't refresh or close this tab — the interview ends and the session's credits are used.
+        </p>
         <div className="dock" role="toolbar" aria-label="Interview controls">
           <button
             className={`dock-btn ${muted ? "muted" : ""}`}
@@ -561,6 +597,46 @@ function InterviewInner({ sessionId, candidateName = "Candidate", recordAudio = 
               Start over
             </button>
           )}
+        </div>
+      </div>
+
+      {/* Leave-intent modal — refreshing or navigating away mid-interview
+          disconnects the room, finalizes the report, and spends the session. */}
+      <div
+        className="guard-overlay"
+        data-open={leaveConfirmOpen ? "true" : "false"}
+        role="presentation"
+        onClick={() => resolveLeave(false)}
+      >
+        <div
+          className="guard-modal"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="guard-title"
+          aria-describedby="guard-desc"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="guard-icon" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" y1="3" x2="12" y2="15" />
+            </svg>
+          </div>
+          <h2 id="guard-title">Leave the interview?</h2>
+          <p id="guard-desc">
+            Refreshing, closing this tab, or navigating away ends the interview now.
+            The report is generated from what's been said so far, and this session's
+            credits are spent either way.
+          </p>
+          <div className="guard-actions">
+            <button ref={stayButtonRef} className="btn btn-ghost" type="button" onClick={() => resolveLeave(false)}>
+              Stay in interview
+            </button>
+            <button className="btn btn-danger" type="button" onClick={() => resolveLeave(true)}>
+              End &amp; leave
+            </button>
+          </div>
         </div>
       </div>
 
